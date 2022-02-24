@@ -10,7 +10,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.locationtech.jts.geom.*;
 import org.locationtech.jts.operation.linemerge.LineMerger;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -71,7 +73,7 @@ public class MeshParse {
         new ArrayList<>(generateXkExtrudedGeometry(previousPolygon, 0.1, 0));
     MultiPolygon currentPolygon;
     double previousCut = 0.1;
-    double currentCut = 0.0;
+    double currentCut;
     // z 取值按照实际所有的点的 z 值来取
     for (Double z : zValues) {
       // 初始每次取 z 值都至少间隔 0.5，不需要取值太密集
@@ -185,64 +187,17 @@ public class MeshParse {
     if (intersectLines.isEmpty() || intersectLines.size() < 3) {
       return new MultiPolygon(new Polygon[] {}, XkGeometryFactory.geometryFactory);
     }
-    if (1 == 1) {
-      return test(intersectLines);
-    }
+    return transformLinesToMultiPolygon(intersectLines);
     // 以下代码暂时废弃
-
-    LineSegment currentLine = intersectLines.get(0);
-    List<LineSegment> linesCache = new ArrayList<>(intersectLines);
-    List<LineSegment> resultLines = new ArrayList<>();
-    resultLines.add(currentLine);
-    intersectLines.remove(currentLine);
-    // 按顺序找出线段
-    while (true) {
-      int size = linesCache.size();
-      for (LineSegment line : intersectLines) {
-        if (currentLine.p1.equals2D(line.p0, 1e-3)) {
-          if (!currentLine.p0.equals2D(line.p1, 1e-3)) {
-            resultLines.add(line);
-          }
-          linesCache.remove(line);
-          break;
-        } else if (currentLine.p1.equals2D(line.p1, 1e-3)) {
-          if (!currentLine.p0.equals2D(line.p0, 1e-3)) {
-            line.reverse();
-            resultLines.add(line);
-          }
-          linesCache.remove(line);
-          break;
-        }
-      }
-      currentLine = resultLines.get(resultLines.size() - 1);
-      intersectLines = linesCache;
-      if (linesCache.size() == size) {
-        break;
-      }
-    }
-    // 处理意外逻辑，比如不闭合等
-    // 暂时先默认全部闭合
-    // 要考虑有两个以上的polygon的情况
-    if (!resultLines.get(0).p0.equals2D(resultLines.get(resultLines.size() - 1).p1, 1e-3)) {
-      resultLines.add(
-          new LineSegment(resultLines.get(resultLines.size() - 1).p1, resultLines.get(0).p0));
-    }
-    List<Coordinate> list = resultLines.stream().map(line -> line.p0).collect(Collectors.toList());
-    list.add(resultLines.get(resultLines.size() - 1).p1);
-    list.add(resultLines.get(0).p0);
-    Coordinate[] coordinates = list.toArray(new Coordinate[] {});
-    return new MultiPolygon(
-        new Polygon[] {XkPolygonUtil.createPolygon2d(coordinates)},
-        XkGeometryFactory.geometryFactory);
   }
 
-  MultiPolygon test(List<LineSegment> list) {
+  /** 将 lineSegment 转换成 multiPolygon */
+  MultiPolygon transformLinesToMultiPolygon(List<LineSegment> list) {
     LineMerger lineMerger = new LineMerger();
     list.stream()
         .map(line -> line.toGeometry(XkGeometryFactory.geometryFactory))
         .forEach(lineMerger::add);
     List<LineString> lineStrings = (ArrayList) lineMerger.getMergedLineStrings();
-    Map<Integer, Geometry> map = new HashMap<>();
     List<Polygon> polygonList = new ArrayList<>();
     // 将line转换成polygon
     for (int i = 0; i < lineStrings.size(); i++) {
@@ -278,146 +233,11 @@ public class MeshParse {
         }
       }
     }
-    // Polygon polygon = polygonList.get(0);
-    if (1 == 1) {
-      return new MultiPolygon(
-          polygonList.toArray(new Polygon[] {}), XkGeometryFactory.geometryFactory);
-    }
-    // if (polygonList.size() == 1) {
-    //   return polygonList.get(0);
-    // } else if (polygonList.size() > 1) {
-    //   return polygonList.stream()
-    //       .max(
-    //           (a, b) -> {
-    //             double v = a.getArea() - b.getArea();
-    //             if (v > 0) {
-    //               return 1;
-    //             } else if (v < 0) {
-    //               return -1;
-    //             } else {
-    //               return 0;
-    //             }
-    //           })
-    //       .get();
-    // } else if (polygonList.size() == 0) {
-    //   return PolygonConstant.POLYGON_EMPTY;
-    // }
+
+    return new MultiPolygon(
+        polygonList.toArray(new Polygon[] {}), XkGeometryFactory.geometryFactory);
 
     // 以下代码暂时废弃
-
-    // TODO 要合并linesegment
-    // 用于保存所有点的坐标
-    List<Coordinate> coordinates = new ArrayList<>();
-    // 用点在coordinates中的 index 标识一个点，并给出所有直接相连的其他节点
-    Map<Integer, Set<Integer>> route = new HashMap<>(list.size() * 2);
-    list.stream()
-        // 线段首尾不能太接近
-        .filter(line -> !line.p0.equals2D(line.p1))
-        .forEach(
-            line -> {
-              int index0 = -1;
-              int index1 = -1;
-              for (int i = 0; i < coordinates.size(); i++) {
-                if (index0 == -1 && coordinates.get(i).equals2D(line.p0, 1e-3)) {
-                  index0 = i;
-                }
-                if (index1 == -1 && coordinates.get(i).equals2D(line.p1, 1e-3)) {
-                  index1 = i;
-                }
-                if (index0 != -1 && index1 != -1) {
-                  break;
-                }
-              }
-              if (index0 == -1) {
-                index0 = coordinates.size();
-                coordinates.add(line.p0);
-              }
-              if (index1 == -1) {
-                index1 = coordinates.size();
-                coordinates.add(line.p1);
-              }
-
-              Set<Integer> s1 = route.getOrDefault(index0, new HashSet<>());
-              s1.add(index1);
-              route.put(index0, s1);
-              Set<Integer> s2 = route.getOrDefault(index1, new HashSet<>());
-              s2.add(index0);
-              route.put(index1, s2);
-            });
-    // 如果有的节点只通往一个其他节点，说明这个节点是孤立的（实际应该不可能出现这种情况）
-    route.entrySet().stream()
-        .filter(entry -> entry.getValue().size() <= 1)
-        .forEach(
-            entry -> {
-              // 删除掉这个节点
-              route.remove(entry.getKey());
-              entry.getValue().forEach(p -> route.get(p).remove(entry.getKey()));
-            });
-    Polygon initialPolygon = findRoute(coordinates, route);
-    return new MultiPolygon(new Polygon[] {initialPolygon}, XkGeometryFactory.geometryFactory);
-  }
-
-  /**
-   * 根据路径得到所有可能的闭合路径
-   *
-   * @param route key是节点的次序，value是可以直接到达的其他节点次序（用 integer 来标志节点）
-   * @return
-   */
-  private Polygon findRoute(List<Coordinate> coordinates, Map<Integer, Set<Integer>> route) {
-    List<List<Integer>> res = new ArrayList<>();
-    // 初始选取一个节点
-    int initial = (int) route.keySet().toArray()[0];
-    // 找到其可以到达的其他节点
-    // 从其他节点继续扫描下一个节点
-    // ...
-    // 直到回到初始节点
-    // dfs
-    // 先要找出一个 闭合的图形，然后围绕着这个闭合的图形一个个向外扩张
-
-    List<Integer> list = new ArrayList<>();
-    list.add(initial);
-    final List<Integer> path = dfs(route, list);
-    if (path.size() > 0) {
-      path.add(path.get(0));
-    }
-    Coordinate[] initialCoordinates =
-        path.stream().map(coordinates::get).toArray(Coordinate[]::new);
-
-    // TODO 还有其他孤立的点，要重新取initial
-    return XkPolygonUtil.createPolygon2d(initialCoordinates);
-  }
-
-  /**
-   * 找到一条可以闭合的路
-   *
-   * @param route 所有联通的路径
-   * @param path 已走的路，不能为空，至少经过一个节点
-   * @return 返回闭合的路上所有的点（按顺序），如果不闭合则返回空
-   */
-  List<Integer> dfs(Map<Integer, Set<Integer>> route, List<Integer> path) {
-    // 遍历下一步所有可能走的点
-    for (Integer next : route.get(path.get(path.size() - 1))) {
-      final int index = path.indexOf(next);
-      // 不能走回头路
-      if (index >= 0 && index == path.size() - 2) {
-        continue;
-      }
-      // 已经走过 next 节点，说明形成了闭环，直接返回
-      if (index != -1) {
-        return path.subList(index, path.size() - 1);
-      }
-      // 否则继续寻找路径
-      path.add(next);
-      final List<Integer> nextPath = dfs(route, path);
-      // 如果刚刚的这条路不行，则继续换下一个
-      if (nextPath.isEmpty()) {
-        path.remove(path.size() - 1);
-      } else {
-        return nextPath;
-      }
-    }
-    // 无路可走了，返回空
-    return Collections.emptyList();
   }
 
   public static void main(String[] args) {
@@ -429,42 +249,8 @@ public class MeshParse {
     System.out.println(xkExtrudedGeometries);
     xkExtrudedGeometries.forEach(
         xkExtrudedGeometry -> System.out.println(xkExtrudedGeometry.getGeometry()));
-    List<Double> area = new ArrayList<>();
-    xkExtrudedGeometries.forEach(geometry -> area.add(geometry.getGeometry().getArea()));
-    System.out.println("area: ");
-    area.forEach(a -> System.out.print(a + " "));
-    System.out.println();
-    System.out.println("intersection area: ");
-    xkExtrudedGeometries.stream()
-        .skip(1)
-        .forEach(
-            a -> {
-              int index = xkExtrudedGeometries.indexOf(a);
-
-              System.out.print(
-                  a.getGeometry()
-                          .buffer(0)
-                          .intersection(xkExtrudedGeometries.get(index - 1).getGeometry().buffer(0))
-                          .getArea()
-                      + " ");
-            });
 
     System.out.println();
-    // System.out.println(xkExtrudedGeometries.get(0).getGeometry());
-    // Geometry dissolve = LineDissolver.dissolve(xkExtrudedGeometries.get(0).getGeometry());
-    // List<LineSegment> lineSegments =
-    //     XkLineSegmentUtil.generateLineSegmentListFromGeometry(dissolve);
-    // LineString[] collect =
-    //     lineSegments.stream()
-    //         .map(line -> line.toGeometry(XkGeometryFactory.geometryFactory))
-    //         .toArray(LineString[]::new);
-    // // NOTE linemerger
-    // GeometryCollection geometryCollection =
-    //     new GeometryCollection(collect, XkGeometryFactory.geometryFactory);
-    // LineMerger lineMerger = new LineMerger();
-    // System.out.println(geometryCollection.getNumGeometries());
-    // lineMerger.add(geometryCollection);
-    // System.out.println(lineMerger.getMergedLineStrings());
   }
 
   List<MyTriangle3D> generate() {
