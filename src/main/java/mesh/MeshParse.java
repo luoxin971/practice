@@ -3,7 +3,6 @@ package mesh;
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.Lists;
 import com.google.common.math.DoubleMath;
-import com.xkool.algo.util.constant.PolygonConstant;
 import com.xkool.algo.util.geometry.XkGeometryFactory;
 import com.xkool.algo.util.geometry.XkPolygonUtil;
 import com.xkool.xkcommon.model.base.XkExtrudedGeometry;
@@ -13,6 +12,7 @@ import org.locationtech.jts.operation.linemerge.LineMerger;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 /**
@@ -58,7 +58,6 @@ public class MeshParse {
             // 是否加上精度要看实际情况如何
             .filter(triangle -> triangle.maxZ != triangle.minZ)
             .collect(Collectors.toList());
-    List<XkExtrudedGeometry> res = new ArrayList<>();
     List<Double> zValues =
         triangleList.stream()
             .flatMap(triangle -> triangle.getCoordinates().stream().map(Coordinate::getZ))
@@ -67,9 +66,10 @@ public class MeshParse {
             .collect(Collectors.toList());
 
     // 用 z=0.1 所截的 polygon 近似替代底座
-    Polygon previousPolygon = getGeometryByZ(triangleList, 0.1);
-    res.add(new XkExtrudedGeometry(previousPolygon, 0.1, 0));
-    Polygon currentPolygon = PolygonConstant.POLYGON_EMPTY;
+    MultiPolygon previousPolygon = getGeometryByZ(triangleList, 0.1);
+    List<XkExtrudedGeometry> res =
+        new ArrayList<>(generateXkExtrudedGeometry(previousPolygon, 0.1, 0));
+    MultiPolygon currentPolygon;
     double previousCut = 0.1;
     double currentCut = 0.0;
     // z 取值按照实际所有的点的 z 值来取
@@ -78,11 +78,12 @@ public class MeshParse {
       if (z - previousCut < 0.5) {
         continue;
       }
-      currentCut = z - 0.1;
+      currentCut = z;
       currentPolygon = getGeometryByZ(triangleList, currentCut);
       // 是否需要细分
       if (!isNeedDivided(previousCut, currentCut, previousPolygon, currentPolygon)) {
-        res.add(new XkExtrudedGeometry(previousPolygon, currentCut - previousCut, previousCut));
+        res.addAll(
+            generateXkExtrudedGeometry(previousPolygon, currentCut - previousCut, previousCut));
       } else {
         // 如果差别大，则要继续细分
         res.addAll(divided(previousCut, currentCut, previousPolygon, currentPolygon, triangleList));
@@ -92,6 +93,22 @@ public class MeshParse {
     }
 
     return res;
+  }
+
+  /**
+   * 将 multipolygon 转换成 XkExtrudedGeometry
+   *
+   * @param multiPolygon multiPolygon
+   * @param height 自身高度
+   * @param elevation 离地高度
+   * @return XkExtrudedGeometry
+   */
+  List<XkExtrudedGeometry> generateXkExtrudedGeometry(
+      MultiPolygon multiPolygon, double height, double elevation) {
+    return IntStream.range(0, multiPolygon.getNumGeometries())
+        .mapToObj(
+            i -> new XkExtrudedGeometry((Polygon) multiPolygon.getGeometryN(i), height, elevation))
+        .collect(Collectors.toList());
   }
 
   /** 判断是否需要继续细分 */
@@ -116,22 +133,22 @@ public class MeshParse {
   List<XkExtrudedGeometry> divided(
       double low,
       double high,
-      Polygon lowGeometry,
-      Polygon highGeometry,
+      MultiPolygon lowGeometry,
+      MultiPolygon highGeometry,
       List<MyTriangle3D> triangleList) {
     // 取中点
     double mid = low + (high - low) / 2;
-    final Polygon midGeometry = getGeometryByZ(triangleList, mid);
+    final MultiPolygon midGeometry = getGeometryByZ(triangleList, mid);
     List<XkExtrudedGeometry> res = new ArrayList<>();
     if (isNeedDivided(low, mid, lowGeometry, midGeometry)) {
       res.addAll(divided(low, mid, lowGeometry, midGeometry, triangleList));
     } else {
-      res.add(new XkExtrudedGeometry(lowGeometry, mid - low, low));
+      res.addAll(generateXkExtrudedGeometry(lowGeometry, mid - low, low));
     }
     if (isNeedDivided(mid, high, midGeometry, highGeometry)) {
       res.addAll(divided(mid, high, midGeometry, highGeometry, triangleList));
     } else {
-      res.add(new XkExtrudedGeometry(midGeometry, high - mid, mid));
+      res.addAll(generateXkExtrudedGeometry(midGeometry, high - mid, mid));
     }
     return res;
   }
@@ -155,7 +172,7 @@ public class MeshParse {
    * @param z 平面 Z=z
    * @return 返回所有线段连成的 polygon
    */
-  Polygon getGeometryByZ(List<MyTriangle3D> triangleList, double z) {
+  MultiPolygon getGeometryByZ(List<MyTriangle3D> triangleList, double z) {
     List<LineSegment> intersectLines =
         triangleList.stream()
             .filter(triangle -> triangle.isIntersectWithZ(z))
@@ -166,11 +183,13 @@ public class MeshParse {
 
     // 有可能 z 过大，没有三角形与之相交
     if (intersectLines.isEmpty() || intersectLines.size() < 3) {
-      return PolygonConstant.POLYGON_EMPTY;
+      return new MultiPolygon(new Polygon[] {}, XkGeometryFactory.geometryFactory);
     }
     if (1 == 1) {
       return test(intersectLines);
     }
+    // 以下代码暂时废弃
+
     LineSegment currentLine = intersectLines.get(0);
     List<LineSegment> linesCache = new ArrayList<>(intersectLines);
     List<LineSegment> resultLines = new ArrayList<>();
@@ -212,10 +231,12 @@ public class MeshParse {
     list.add(resultLines.get(resultLines.size() - 1).p1);
     list.add(resultLines.get(0).p0);
     Coordinate[] coordinates = list.toArray(new Coordinate[] {});
-    return XkPolygonUtil.createPolygon2d(coordinates);
+    return new MultiPolygon(
+        new Polygon[] {XkPolygonUtil.createPolygon2d(coordinates)},
+        XkGeometryFactory.geometryFactory);
   }
 
-  Polygon test(List<LineSegment> list) {
+  MultiPolygon test(List<LineSegment> list) {
     LineMerger lineMerger = new LineMerger();
     list.stream()
         .map(line -> line.toGeometry(XkGeometryFactory.geometryFactory))
@@ -223,7 +244,7 @@ public class MeshParse {
     List<LineString> lineStrings = (ArrayList) lineMerger.getMergedLineStrings();
     Map<Integer, Geometry> map = new HashMap<>();
     List<Polygon> polygonList = new ArrayList<>();
-    // 首先要去重
+    // 将line转换成polygon
     for (int i = 0; i < lineStrings.size(); i++) {
       // 看看 isClosed 和 isRing 的区别
       if (lineStrings.get(i).isClosed()) {
@@ -258,25 +279,29 @@ public class MeshParse {
       }
     }
     // Polygon polygon = polygonList.get(0);
-    if (polygonList.size() == 1) {
-      return polygonList.get(0);
-    } else if (polygonList.size() > 1) {
-      return polygonList.stream()
-          .max(
-              (a, b) -> {
-                double v = a.getArea() - b.getArea();
-                if (v > 0) {
-                  return 1;
-                } else if (v < 0) {
-                  return -1;
-                } else {
-                  return 0;
-                }
-              })
-          .get();
-    } else if (polygonList.size() == 0) {
-      return PolygonConstant.POLYGON_EMPTY;
+    if (1 == 1) {
+      return new MultiPolygon(
+          polygonList.toArray(new Polygon[] {}), XkGeometryFactory.geometryFactory);
     }
+    // if (polygonList.size() == 1) {
+    //   return polygonList.get(0);
+    // } else if (polygonList.size() > 1) {
+    //   return polygonList.stream()
+    //       .max(
+    //           (a, b) -> {
+    //             double v = a.getArea() - b.getArea();
+    //             if (v > 0) {
+    //               return 1;
+    //             } else if (v < 0) {
+    //               return -1;
+    //             } else {
+    //               return 0;
+    //             }
+    //           })
+    //       .get();
+    // } else if (polygonList.size() == 0) {
+    //   return PolygonConstant.POLYGON_EMPTY;
+    // }
 
     // 以下代码暂时废弃
 
@@ -329,7 +354,7 @@ public class MeshParse {
               entry.getValue().forEach(p -> route.get(p).remove(entry.getKey()));
             });
     Polygon initialPolygon = findRoute(coordinates, route);
-    return initialPolygon;
+    return new MultiPolygon(new Polygon[] {initialPolygon}, XkGeometryFactory.geometryFactory);
   }
 
   /**
