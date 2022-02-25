@@ -15,6 +15,7 @@
         <xkalgo.util.verion>1.1.5-SNAPSHOT</xkalgo.util.verion>
         <xkcommon.version>4.5.0-SNAPSHOT</xkcommon.version>
         <guava.version>31.0.1-jre</guava.version>
+        <apachemath3.version>3.6.1</apachemath3.version>
     </properties>
 
     <dependencies>
@@ -59,6 +60,11 @@
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-nop</artifactId>
             <version>1.7.36</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-math3</artifactId>
+            <version>${apachemath3.version}</version>
         </dependency>
     </dependencies>
 

@@ -7,12 +7,15 @@ import com.xkool.algo.util.geometry.XkGeometryFactory;
 import com.xkool.algo.util.geometry.XkPolygonUtil;
 import com.xkool.xkcommon.model.base.XkExtrudedGeometry;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.math3.util.Pair;
 import org.locationtech.jts.geom.*;
 import org.locationtech.jts.operation.linemerge.LineMerger;
+import org.locationtech.jts.operation.union.UnaryUnionOp;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -28,38 +31,38 @@ public class MeshParse {
 
   List<MyTriangle3D> triangles = new ArrayList<>();
 
-  /** 将三角形转换为自己的模型 */
-  List<MyTriangle3D> transformToTriangle() {
-    List<MyTriangle3D> triangleList = new ArrayList<>();
-    return triangleList;
+  /**
+   * TODO 划分block
+   *
+   * <p>去除 Z=0 上的所有三角形，从而删掉基地的三角形信息
+   */
+  void blockSplit(List<Triangle> triangleList) {
+    //
   }
-
-  /** 划分block TODO 要考虑基地本身也有triangle的情况 */
-  void blockSplit(List<Triangle> triangleList) {}
 
   /**
    * 将三角形构建成 building
    *
    * <p>从z=0开始，找到所有的边，构建成底座
    *
-   * <p>指定一定的递进范围（或者根据 triangle 上点的 z 值确定每次截取的 z 坐标）
+   * <p>根据 triangle 上点的 z 值确定每次截取的 z 坐标
    *
-   * <p>指定 z 值后，截取三角形，找出所有线段，闭合成一个 geometry
+   * <p>指定 z 值后，截取三角形，找出所有线段，闭合成一个 MultiPolygon
    *
-   * <p>与前一个geometry做一个比较，如果差别较大则，继续细分，否则下一步
+   * <p>与前一个 MultiPolygon 做一个比较，如果差别较大则，继续细分，否则下一步
    *
    * <p>加上离地高度，自身高度
    *
-   * <p>TODO 可以根据正视图和侧视图大概确认其形状
+   * <p>或许可以考虑根据正视图和侧视图大概确认其形状，防止一些误差或者意外情况
    */
   List<XkExtrudedGeometry> transformToBuild(List<MyTriangle3D> allTriangles) {
     // 为了计算方便，triangleList 要去掉与平面 Z=0 平行的三角形（去掉这些三角形，其实并不影响，因为这三个边是肯定会在其他三角形中用的
-
     final List<MyTriangle3D> triangleList =
         allTriangles.stream()
             // 是否加上精度要看实际情况如何
             .filter(triangle -> triangle.maxZ != triangle.minZ)
             .collect(Collectors.toList());
+    // 找出所有点的z坐标，注意要去重和排序
     List<Double> zValues =
         triangleList.stream()
             .flatMap(triangle -> triangle.getCoordinates().stream().map(Coordinate::getZ))
@@ -74,10 +77,10 @@ public class MeshParse {
     MultiPolygon currentPolygon;
     double previousCut = 0.1;
     double currentCut;
-    // z 取值按照实际所有的点的 z 值来取
+    // 逐个遍历 z 值，进行截断
     for (Double z : zValues) {
-      // 初始每次取 z 值都至少间隔 0.5，不需要取值太密集
-      if (z - previousCut < 0.5) {
+      // 初始每次取 z 值都至少间隔 1，不需要取值太密集
+      if (z - previousCut < 1) {
         continue;
       }
       currentCut = z;
@@ -116,7 +119,7 @@ public class MeshParse {
   /** 判断是否需要继续细分 */
   boolean isNeedDivided(double low, double high, Geometry lowGeometry, Geometry highGeometry) {
     // 如果间距较小，就不要细分了
-    if (high - low < 0.5) {
+    if (high - low < 1) {
       return false;
     }
     double lowArea = lowGeometry.getArea();
@@ -130,7 +133,11 @@ public class MeshParse {
   /**
    * 在 z 取值为 low, high 之中对 triangleList 在进行划分
    *
-   * <p>要区分是斜面还是突变
+   * <p>TODO 要区分是斜面还是突变
+   *
+   * <p>如果是柱状的，突变，那就不用精细切分
+   *
+   * <p>否则就是斜面的，那就慢慢切割
    */
   List<XkExtrudedGeometry> divided(
       double low,
@@ -168,7 +175,7 @@ public class MeshParse {
   }
 
   /**
-   * 获取 Z=z 的切面 TODO 要考虑有两个以上的polygon的情况
+   * 获取 Z=z 的切面
    *
    * @param triangleList 要求所有三角形不能与平面 Z=z 平行
    * @param z 平面 Z=z
@@ -197,40 +204,52 @@ public class MeshParse {
     list.stream()
         .map(line -> line.toGeometry(XkGeometryFactory.geometryFactory))
         .forEach(lineMerger::add);
-    List<LineString> lineStrings = (ArrayList) lineMerger.getMergedLineStrings();
+    List<LineString> lineStrings = (ArrayList<LineString>) lineMerger.getMergedLineStrings();
     List<Polygon> polygonList = new ArrayList<>();
-    // 将line转换成polygon
-    for (int i = 0; i < lineStrings.size(); i++) {
-      // 看看 isClosed 和 isRing 的区别
-      if (lineStrings.get(i).isClosed()) {
-        polygonList.add(XkPolygonUtil.createPolygon2d(lineStrings.get(i).getCoordinates()));
-      } else {
-        for (int j = 0; j < lineStrings.size(); j++) {
-          if (DoubleMath.fuzzyEquals(
-              lineStrings.get(i).getLength(), lineStrings.get(j).getLength(), 1e-3)) {
-            continue;
-          }
-          if (lineStrings.get(i).getStartPoint().equalsExact(lineStrings.get(j).getStartPoint())
-              && lineStrings.get(i).getEndPoint().equalsExact(lineStrings.get(j).getEndPoint())) {
+    // 将 lineString 分为自闭合和非闭合的两组
+    // 看看 isClosed 和 isRing 的区别
+    Map<Boolean, List<LineString>> partition =
+        lineStrings.stream().collect(Collectors.partitioningBy(LineString::isClosed));
+    // 自闭合的直接生成 polygon
+    partition
+        .get(true)
+        .forEach(line -> polygonList.add(XkPolygonUtil.createPolygon2d(line.getCoordinates())));
+    // 不闭合的去找另一半
+    // FIXME 要考虑是否会有多段 lineString 才生成一个 ring 的情况，之后碰到 bug 再解决
+    final List<LineString> unclosed = partition.get(false);
+    List<Pair<Coordinate, Coordinate>> coordinatePairList = new ArrayList<>();
+    for (LineString ls : unclosed) {
+      // ls 的首尾
+      Coordinate lastCoordinate = ls.getCoordinateN(ls.getNumPoints() - 1);
+      Coordinate firstCoordinate = ls.getCoordinateN(0);
+      if (coordinatePairList.stream()
+          .noneMatch(
+              pair -> isTwoCoordinateEqual(pair, Pair.create(firstCoordinate, lastCoordinate)))) {
+
+        coordinatePairList.add(Pair.create(firstCoordinate, lastCoordinate));
+        List<Polygon> iPolygons = new ArrayList<>();
+        for (int i = unclosed.indexOf(ls) + 1; i < unclosed.size(); i++) {
+          // unclosed.get(i) 的首尾
+          Coordinate first = unclosed.get(i).getCoordinateN(0);
+          Coordinate last = unclosed.get(i).getCoordinateN(unclosed.get(i).getNumPoints() - 1);
+          // 两条 lineString 首尾点是否相同，相同就可以闭合
+          if (firstCoordinate.equals2D(first) && lastCoordinate.equals2D(last)) {
             Coordinate[] coordinates =
                 Stream.concat(
-                        Arrays.stream(lineStrings.get(i).getCoordinates()),
-                        Arrays.stream(lineStrings.get(j).reverse().getCoordinates()).skip(1))
+                        Arrays.stream(ls.getCoordinates()),
+                        Arrays.stream(unclosed.get(i).reverse().getCoordinates()).skip(1))
                     .toArray(Coordinate[]::new);
-            polygonList.add(XkPolygonUtil.createPolygon2d(coordinates));
-          } else if (lineStrings
-                  .get(i)
-                  .getStartPoint()
-                  .equalsExact(lineStrings.get(j).getEndPoint())
-              && lineStrings.get(i).getEndPoint().equalsExact(lineStrings.get(j).getStartPoint())) {
+            iPolygons.add(XkPolygonUtil.createPolygon2d(coordinates));
+          } else if (firstCoordinate.equals2D(last) && lastCoordinate.equals2D(first)) {
             Coordinate[] coordinates =
                 Stream.concat(
-                        Arrays.stream(lineStrings.get(i).getCoordinates()),
-                        Arrays.stream(lineStrings.get(j).getCoordinates()).skip(1))
+                        Arrays.stream(ls.getCoordinates()),
+                        Arrays.stream(unclosed.get(i).getCoordinates()).skip(1))
                     .toArray(Coordinate[]::new);
-            polygonList.add(XkPolygonUtil.createPolygon2d(coordinates));
+            iPolygons.add(XkPolygonUtil.createPolygon2d(coordinates));
           }
         }
+        polygonList.add((Polygon) UnaryUnionOp.union(iPolygons));
       }
     }
 
@@ -240,15 +259,28 @@ public class MeshParse {
     // 以下代码暂时废弃
   }
 
+  /** 判断两个 pair 里的 coordinate 是否 equal，不考虑顺序 */
+  boolean isTwoCoordinateEqual(Pair<Coordinate, Coordinate> p1, Pair<Coordinate, Coordinate> p2) {
+    return p1.getFirst().equals2D(p2.getFirst(), 1e-3)
+            && p1.getSecond().equals2D(p2.getSecond(), 1e-3)
+        || p1.getFirst().equals2D(p2.getSecond(), 1e-3)
+            && p1.getSecond().equals2D(p2.getFirst(), 1e-3);
+  }
+
   public static void main(String[] args) {
     MeshParse meshParse = new MeshParse();
     Stopwatch timer = Stopwatch.createStarted();
     List<XkExtrudedGeometry> xkExtrudedGeometries =
         meshParse.transformToBuild(meshParse.generate());
     System.out.println(timer.stop());
-    System.out.println(xkExtrudedGeometries);
     xkExtrudedGeometries.forEach(
-        xkExtrudedGeometry -> System.out.println(xkExtrudedGeometry.getGeometry()));
+        xkExtrudedGeometry -> {
+          System.out.println(xkExtrudedGeometry.getGeometry());
+          System.out.printf(
+              "low: %f, high: %f%n",
+              xkExtrudedGeometry.getElevation(),
+              xkExtrudedGeometry.getElevation() + xkExtrudedGeometry.getSelfHeight());
+        });
 
     System.out.println();
   }
