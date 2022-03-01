@@ -10,7 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.math3.util.Pair;
 import org.locationtech.jts.geom.*;
 import org.locationtech.jts.operation.linemerge.LineMerger;
-import org.locationtech.jts.operation.union.UnaryUnionOp;
+import org.locationtech.jts.operation.union.CascadedPolygonUnion;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -249,7 +249,11 @@ public class MeshParse {
             iPolygons.add(XkPolygonUtil.createPolygon2d(coordinates));
           }
         }
-        polygonList.add((Polygon) UnaryUnionOp.union(iPolygons));
+        if (iPolygons.size() > 1) {
+          polygonList.add((Polygon) CascadedPolygonUnion.union(iPolygons));
+        } else {
+          polygonList.addAll(iPolygons);
+        }
       }
     }
 
@@ -267,9 +271,10 @@ public class MeshParse {
             && p1.getSecond().equals2D(p2.getFirst(), 1e-3);
   }
 
-  public static void main(String[] args) {
-    MeshParse meshParse = new MeshParse();
+  public static void main(String[] args) throws InterruptedException {
+    Thread.sleep(10000);
     Stopwatch timer = Stopwatch.createStarted();
+    MeshParse meshParse = new MeshParse();
     List<XkExtrudedGeometry> xkExtrudedGeometries =
         meshParse.transformToBuild(meshParse.generate());
     System.out.println(timer.stop());
@@ -283,6 +288,7 @@ public class MeshParse {
         });
 
     System.out.println();
+    Thread.sleep(100000000);
   }
 
   List<MyTriangle3D> generate() {

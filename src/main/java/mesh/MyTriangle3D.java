@@ -3,11 +3,9 @@ package mesh;
 import com.google.common.math.DoubleMath;
 import com.xkool.algo.util.geometry.XkGeometryFactory;
 import com.xkool.algo.util.geometry.XkLineStringUtil;
+import com.xkool.algo.util.geometry.XkPolygonUtil;
 import lombok.Data;
-import org.locationtech.jts.geom.Coordinate;
-import org.locationtech.jts.geom.GeometryCollection;
-import org.locationtech.jts.geom.LineSegment;
-import org.locationtech.jts.geom.LineString;
+import org.locationtech.jts.geom.*;
 import org.locationtech.jts.operation.linemerge.LineMerger;
 
 import java.util.ArrayList;
@@ -174,8 +172,29 @@ public class MyTriangle3D {
     System.out.println(lineString1.getBoundary().buffer(0.1).contains(lineString.getBoundary()));
   }
 
+  static void test3() {
+    Polygon polygon2d =
+        XkPolygonUtil.createPolygon2d(
+            new Coordinate(0, 0),
+            new Coordinate(0, 1),
+            new Coordinate(1, 1),
+            new Coordinate(1, 0),
+            new Coordinate(0, 0));
+    Polygon polygon =
+        XkPolygonUtil.createPolygon2d(
+            new Coordinate(0, 0),
+            new Coordinate(0, 2),
+            new Coordinate(1, 1),
+            new Coordinate(1, 0),
+            new Coordinate(0, 0));
+    MultiPolygon multiPolygon =
+        new MultiPolygon(new Polygon[] {polygon, polygon2d}, XkGeometryFactory.geometryFactory);
+    System.out.println(multiPolygon);
+  }
+
   public static void main(String[] args) {
-    test();
+    // test();
     // test2();
+    test3();
   }
 }
