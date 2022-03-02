@@ -6,16 +6,18 @@ import com.google.common.math.DoubleMath;
 import com.xkool.algo.util.geometry.XkGeometryFactory;
 import com.xkool.algo.util.geometry.XkPolygonUtil;
 import com.xkool.xkcommon.model.base.XkExtrudedGeometry;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.math3.util.Pair;
 import org.locationtech.jts.geom.*;
 import org.locationtech.jts.operation.linemerge.LineMerger;
 import org.locationtech.jts.operation.union.CascadedPolygonUnion;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -27,17 +29,112 @@ import java.util.stream.Stream;
  * @since 2022/2/17
  */
 @Slf4j
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 public class MeshParse {
 
   List<MyTriangle3D> triangles = new ArrayList<>();
 
+  public List<Set<MyTriangle3D>> blockSplit() {
+    return blockSplit(this.triangles);
+  }
+
   /**
-   * TODO 划分block
+   * 将基地内所有的 triangle 根据所在 building 分组，基本步骤如下
    *
-   * <p>去除 Z=0 上的所有三角形，从而删掉基地的三角形信息
+   * <p>building 划分的依据是，两栋 building 中的 triangles 不共边，不共点
+   *
+   * <p>预处理：找出所有的点，以及包含该点的 triangles
+   *
+   * <ol>
+   *   主要步骤：
+   *   <li>去除平面 Z=0 上的所有三角形，防止基地本身的 triangle 产生影响
+   *   <li>随机找一个没有遍历过的点，根据这个点，找出这个点所在的 building 中的所有 triangle
+   *   <li>重复第 2 步，直到所有点都遍历完了
+   * </ol>
+   *
+   * <ol>
+   *   该方法要求：
+   *   <li>基地是平的，否则整个基地将只有一个 building
+   *   <li>各点之间的 equal 不存在 double 导致的精度问题
+   * </ol>
+   *
+   * @param triangleList 基地内所有的 triangle
+   * @return 每栋建筑内所有的 triangles
    */
-  void blockSplit(List<Triangle> triangleList) {
-    //
+  public static List<Set<MyTriangle3D>> blockSplit(List<MyTriangle3D> triangleList) {
+    // 去掉平面 Z=0 上的 triangles
+    List<MyTriangle3D> list =
+        triangleList.stream()
+            .filter(tri -> !DoubleMath.fuzzyEquals(tri.getMaxZ(), 0, 1e-3))
+            .collect(Collectors.toList());
+    // 存所有的 coordinates
+    Map<Coordinate, List<MyTriangle3D>> map = new ConcurrentHashMap<>();
+    list.stream()
+        .parallel()
+        .forEach(
+            myTriangle3D ->
+                myTriangle3D
+                    .getCoordinates()
+                    .forEach(
+                        p -> {
+                          List<MyTriangle3D> value = map.getOrDefault(p, new ArrayList<>());
+                          value.add(myTriangle3D);
+                          map.put(p, value);
+                        }));
+    // 随机找出一点，根据这一点所在的所有 triangle 逐渐向外扩散，并记录这些 triangle 所包含的点
+    // 再由这些点，通过 map，找到所有的 triangle，组合在一起就是一个 building
+
+    // 每栋建筑所包含的 coordinate
+    List<Set<Coordinate>> coordinateInBuildingList = new ArrayList<>();
+    // 已遍历的所有的 coordinates
+    Set<Coordinate> coordinatesAccessed = new HashSet<>();
+    // 大循环，将所有 coordinates 按所在的 building 进行分组，放入 coordinateInBuildingList
+    while (coordinatesAccessed.size() != map.size()) {
+      // 选取一个还没遍历的点
+      Coordinate first =
+          map.keySet().stream()
+              .filter(coordinate -> !coordinatesAccessed.contains(coordinate))
+              .findAny()
+              .orElse(null);
+      // 如果为空，则表明全部遍历完，理论上不可能为空，除非有 bug
+      if (Objects.isNull(first)) {
+        break;
+      }
+      // 小循环，找出点 first 所在的 building 中的所有 coordinates
+      // 每一轮需要遍历的 coordinate curSet
+      Set<Coordinate> curSet = new HashSet<>();
+      // 当前 building 中的所有 coordinates
+      Set<Coordinate> coordinatesInBuilding = new HashSet<>();
+      curSet.add(first);
+      coordinatesInBuilding.add(first);
+
+      // 从 curSet 扩散出的下一轮 coordinate
+      // 为空说明已经遍历完了
+      while (!curSet.isEmpty()) {
+        curSet =
+            curSet.parallelStream()
+                .flatMap(
+                    coordinate ->
+                        map.get(coordinate).stream()
+                            .flatMap(triangle -> triangle.getCoordinates().stream()))
+                .distinct()
+                .filter(coordinate -> !coordinatesInBuilding.contains(coordinate))
+                .collect(Collectors.toSet());
+        coordinatesInBuilding.addAll(curSet);
+      }
+      coordinatesAccessed.addAll(coordinatesInBuilding);
+      coordinateInBuildingList.add(coordinatesInBuilding);
+    }
+    return coordinateInBuildingList.stream()
+        .map(
+            set ->
+                set.stream()
+                    .flatMap(coordinate -> map.get(coordinate).stream())
+                    .collect(Collectors.toSet()))
+        .collect(Collectors.toList());
   }
 
   /**
@@ -55,7 +152,7 @@ public class MeshParse {
    *
    * <p>或许可以考虑根据正视图和侧视图大概确认其形状，防止一些误差或者意外情况
    */
-  List<XkExtrudedGeometry> transformToBuild(List<MyTriangle3D> allTriangles) {
+  protected List<XkExtrudedGeometry> transformToBuild(List<MyTriangle3D> allTriangles) {
     // 为了计算方便，triangleList 要去掉与平面 Z=0 平行的三角形（去掉这些三角形，其实并不影响，因为这三个边是肯定会在其他三角形中用的
     final List<MyTriangle3D> triangleList =
         allTriangles.stream()
@@ -63,6 +160,7 @@ public class MeshParse {
             .filter(triangle -> triangle.maxZ != triangle.minZ)
             .collect(Collectors.toList());
     // 找出所有点的z坐标，注意要去重和排序
+    // TODO 考虑直接在一开始就将距离较近的点过滤，省的参与排序
     List<Double> zValues =
         triangleList.stream()
             .flatMap(triangle -> triangle.getCoordinates().stream().map(Coordinate::getZ))
@@ -71,9 +169,10 @@ public class MeshParse {
             .collect(Collectors.toList());
 
     // 用 z=0.1 所截的 polygon 近似替代底座
-    MultiPolygon previousPolygon = getGeometryByZ(triangleList, 0.1);
+    // FIXME 现在感觉去掉了平行的三角形后，z=0 也可以哈，之后再回来看
+    MultiPolygon previousPolygon = this.getGeometryByZ(triangleList, 0.1);
     List<XkExtrudedGeometry> res =
-        new ArrayList<>(generateXkExtrudedGeometry(previousPolygon, 0.1, 0));
+        new ArrayList<>(this.generateXkExtrudedGeometry(previousPolygon, 0.1, 0));
     MultiPolygon currentPolygon;
     double previousCut = 0.1;
     double currentCut;
@@ -84,14 +183,16 @@ public class MeshParse {
         continue;
       }
       currentCut = z;
-      currentPolygon = getGeometryByZ(triangleList, currentCut);
+      currentPolygon = this.getGeometryByZ(triangleList, currentCut);
       // 是否需要细分
-      if (!isNeedDivided(previousCut, currentCut, previousPolygon, currentPolygon)) {
+      if (!this.isNeedDivided(previousCut, currentCut, previousPolygon, currentPolygon)) {
         res.addAll(
-            generateXkExtrudedGeometry(previousPolygon, currentCut - previousCut, previousCut));
+            this.generateXkExtrudedGeometry(
+                previousPolygon, currentCut - previousCut, previousCut));
       } else {
         // 如果差别大，则要继续细分
-        res.addAll(divided(previousCut, currentCut, previousPolygon, currentPolygon, triangleList));
+        res.addAll(
+            this.divide(previousCut, currentCut, previousPolygon, currentPolygon, triangleList));
       }
       previousCut = currentCut;
       previousPolygon = currentPolygon;
@@ -108,7 +209,7 @@ public class MeshParse {
    * @param elevation 离地高度
    * @return XkExtrudedGeometry
    */
-  List<XkExtrudedGeometry> generateXkExtrudedGeometry(
+  private List<XkExtrudedGeometry> generateXkExtrudedGeometry(
       MultiPolygon multiPolygon, double height, double elevation) {
     return IntStream.range(0, multiPolygon.getNumGeometries())
         .mapToObj(
@@ -117,9 +218,10 @@ public class MeshParse {
   }
 
   /** 判断是否需要继续细分 */
-  boolean isNeedDivided(double low, double high, Geometry lowGeometry, Geometry highGeometry) {
+  protected boolean isNeedDivided(
+      double low, double high, Geometry lowGeometry, Geometry highGeometry) {
     // 如果间距较小，就不要细分了
-    if (high - low < 1) {
+    if (high - low < 1.5) {
       return false;
     }
     double lowArea = lowGeometry.getArea();
@@ -130,16 +232,27 @@ public class MeshParse {
     return intersectionArea / lowArea < 0.8 || intersectionArea / highArea < 0.8;
   }
 
+  /** 获取 g1, g2 的交集的面积 */
+  double getIntersectionArea(Geometry g1, Geometry g2) {
+    Geometry buffer1 = g1.buffer(0);
+    Geometry buffer2 = g2.buffer(0);
+    Geometry geo1 = buffer1.intersection(buffer1);
+    Geometry geo2 = buffer2.intersection(buffer2);
+    return geo1.intersection(geo2).getArea();
+  }
+
   /**
-   * 在 z 取值为 low, high 之中对 triangleList 在进行划分
+   * 切割策略，在 z 取值为 low, high 之中对 triangleList 进行划分
    *
-   * <p>TODO 要区分是斜面还是突变
+   * <p>目前采取的策略是
    *
-   * <p>如果是柱状的，突变，那就不用精细切分
+   * <p>先判断是否是平面做拉伸的（如果上下 geometry 相交的面积占比很大，则认为是拉伸的）
    *
-   * <p>否则就是斜面的，那就慢慢切割
+   * <p>如果是拉伸的，直接取被拉伸的平面为 geometry，高度差为 selfHigh
+   *
+   * <p>否则就是斜面的，那就以一定间距慢慢切割
    */
-  List<XkExtrudedGeometry> divided(
+  protected List<XkExtrudedGeometry> divide(
       double low,
       double high,
       MultiPolygon lowGeometry,
@@ -147,17 +260,46 @@ public class MeshParse {
       List<MyTriangle3D> triangleList) {
     // 取中点
     double mid = low + (high - low) / 2;
-    final MultiPolygon midGeometry = getGeometryByZ(triangleList, mid);
-    List<XkExtrudedGeometry> res = new ArrayList<>();
-    if (isNeedDivided(low, mid, lowGeometry, midGeometry)) {
-      res.addAll(divided(low, mid, lowGeometry, midGeometry, triangleList));
-    } else {
-      res.addAll(generateXkExtrudedGeometry(lowGeometry, mid - low, low));
+    final MultiPolygon midGeometry = this.getGeometryByZ(triangleList, mid);
+
+    // 与上下的geometry相近时，认为是拉伸的
+    if (this.getIntersectionArea(midGeometry, lowGeometry) / lowGeometry.getArea() > 0.95) {
+      return this.generateXkExtrudedGeometry(lowGeometry, high - low, low);
+    } else if (this.getIntersectionArea(midGeometry, highGeometry) / highGeometry.getArea()
+        > 0.95) {
+      return this.generateXkExtrudedGeometry(highGeometry, high - low, low);
     }
-    if (isNeedDivided(mid, high, midGeometry, highGeometry)) {
-      res.addAll(divided(mid, high, midGeometry, highGeometry, triangleList));
-    } else {
-      res.addAll(generateXkExtrudedGeometry(midGeometry, high - mid, mid));
+    // 否则认为是一个斜面，渐变的
+    List<Double> zValues = this.getCutZValues(low, high);
+    List<MultiPolygon> multiPolygons =
+        zValues.parallelStream()
+            .map(z -> this.getGeometryByZ(triangleList, z))
+            .collect(Collectors.toList());
+    int size = zValues.size();
+
+    List<XkExtrudedGeometry> res =
+        this.generateXkExtrudedGeometry(lowGeometry, zValues.get(0) - low, low);
+    res.addAll(
+        IntStream.range(0, size - 1)
+            .parallel()
+            .mapToObj(
+                x ->
+                    this.generateXkExtrudedGeometry(
+                        multiPolygons.get(x), zValues.get(x + 1) - zValues.get(x), zValues.get(x)))
+            .flatMap(Collection::stream)
+            .collect(Collectors.toList()));
+    Double lastZ = zValues.get(size - 1);
+    res.addAll(
+        this.generateXkExtrudedGeometry(
+            multiPolygons.get(multiPolygons.size() - 1), high - lastZ, lastZ));
+    return res;
+  }
+
+  /** 获取从 low 到 high 中要切割的 z值 */
+  List<Double> getCutZValues(double low, double high) {
+    List<Double> res = new ArrayList<>();
+    for (double z = low + 1; z < high; ++z) {
+      res.add(z);
     }
     return res;
   }
@@ -181,7 +323,7 @@ public class MeshParse {
    * @param z 平面 Z=z
    * @return 返回所有线段连成的 polygon
    */
-  MultiPolygon getGeometryByZ(List<MyTriangle3D> triangleList, double z) {
+  protected MultiPolygon getGeometryByZ(List<MyTriangle3D> triangleList, double z) {
     List<LineSegment> intersectLines =
         triangleList.stream()
             .filter(triangle -> triangle.isIntersectWithZ(z))
@@ -194,12 +336,12 @@ public class MeshParse {
     if (intersectLines.isEmpty() || intersectLines.size() < 3) {
       return new MultiPolygon(new Polygon[] {}, XkGeometryFactory.geometryFactory);
     }
-    return transformLinesToMultiPolygon(intersectLines);
+    return this.transformLinesToMultiPolygon(intersectLines);
     // 以下代码暂时废弃
   }
 
-  /** 将 lineSegment 转换成 multiPolygon */
-  MultiPolygon transformLinesToMultiPolygon(List<LineSegment> list) {
+  /** 将 lineSegment 转换成 multiPolygon TODO 算法需要优化 */
+  protected MultiPolygon transformLinesToMultiPolygon(List<LineSegment> list) {
     LineMerger lineMerger = new LineMerger();
     list.stream()
         .map(line -> line.toGeometry(XkGeometryFactory.geometryFactory))
@@ -224,7 +366,8 @@ public class MeshParse {
       Coordinate firstCoordinate = ls.getCoordinateN(0);
       if (coordinatePairList.stream()
           .noneMatch(
-              pair -> isTwoCoordinateEqual(pair, Pair.create(firstCoordinate, lastCoordinate)))) {
+              pair ->
+                  this.isTwoCoordinateEqual(pair, Pair.create(firstCoordinate, lastCoordinate)))) {
 
         coordinatePairList.add(Pair.create(firstCoordinate, lastCoordinate));
         List<Polygon> iPolygons = new ArrayList<>();
@@ -271,12 +414,19 @@ public class MeshParse {
             && p1.getSecond().equals2D(p2.getFirst(), 1e-3);
   }
 
-  public static void main(String[] args) throws InterruptedException {
-    Thread.sleep(10000);
+  static void testBlockSplit() {
+    List<MyTriangle3D> triangle3DS = MeshParse.generate();
+    MeshParse meshParse = new MeshParse(triangle3DS);
+    List<Set<MyTriangle3D>> sets = meshParse.blockSplit(triangle3DS);
+    // 打断点查看结果
+    System.out.println(sets);
+  }
+
+  static void testTransformToBuilding() {
     Stopwatch timer = Stopwatch.createStarted();
-    MeshParse meshParse = new MeshParse();
-    List<XkExtrudedGeometry> xkExtrudedGeometries =
-        meshParse.transformToBuild(meshParse.generate());
+    List<MyTriangle3D> allTriangles = MeshParse.generate();
+    MeshParse meshParse = new MeshParse(allTriangles);
+    List<XkExtrudedGeometry> xkExtrudedGeometries = meshParse.transformToBuild(allTriangles);
     System.out.println(timer.stop());
     xkExtrudedGeometries.forEach(
         xkExtrudedGeometry -> {
@@ -288,10 +438,16 @@ public class MeshParse {
         });
 
     System.out.println();
+  }
+
+  public static void main(String[] args) throws InterruptedException {
+    MeshParse.testBlockSplit();
+    MeshParse.testTransformToBuilding();
+
     Thread.sleep(100000000);
   }
 
-  List<MyTriangle3D> generate() {
+  static List<MyTriangle3D> generate() {
 
     List<Double> values =
         Arrays.asList(
@@ -721,17 +877,17 @@ public class MeshParse {
             .collect(Collectors.toList());
     triangle3DList.addAll(triangle3DList2);
     triangle3DList.addAll(triangle3DList3);
-    triangle3DList.addAll(generateTri());
+    triangle3DList.addAll(MeshParse.generateTri());
     return triangle3DList;
   }
 
-  List<MyTriangle3D> generateTri() {
+  static List<MyTriangle3D> generateTri() {
     List<Coordinate> coordinateList =
-        Lists.partition(generateDouble(), 3).stream()
+        Lists.partition(MeshParse.generateDouble(), 3).stream()
             .map(list -> new Coordinate(list.get(0), list.get(1), list.get(2)))
             .collect(Collectors.toList());
     List<MyTriangle3D> triangle3DList3 =
-        Lists.partition(generateInt(), 3).stream()
+        Lists.partition(MeshParse.generateInt(), 3).stream()
             .map(
                 list ->
                     new MyTriangle3D(
@@ -742,13 +898,13 @@ public class MeshParse {
     return triangle3DList3;
   }
 
-  List<Integer> generateInt() {
+  static List<Integer> generateInt() {
     return Arrays.asList(
         0, 1, 2, 1, 0, 3, 4, 5, 6, 5, 4, 7, 8, 9, 10, 9, 8, 11, 12, 13, 14, 13, 12, 15, 16, 17, 18,
         17, 16, 19, 20, 21, 22, 21, 20, 23);
   }
 
-  List<Double> generateDouble() {
+  static List<Double> generateDouble() {
     return Arrays.asList(
         516.7715654,
         272.6935770,

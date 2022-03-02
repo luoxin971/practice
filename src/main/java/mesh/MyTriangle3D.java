@@ -8,10 +8,7 @@ import lombok.Data;
 import org.locationtech.jts.geom.*;
 import org.locationtech.jts.operation.linemerge.LineMerger;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 /**
  * content
@@ -34,12 +31,31 @@ public class MyTriangle3D {
     this.p0 = p0;
     this.p1 = p1;
     this.p2 = p2;
-    maxZ = Math.max(p0.getZ(), Math.max(p1.getZ(), p2.getZ()));
-    minZ = Math.min(p0.getZ(), Math.min(p1.getZ(), p2.getZ()));
+    this.maxZ = Math.max(p0.getZ(), Math.max(p1.getZ(), p2.getZ()));
+    this.minZ = Math.min(p0.getZ(), Math.min(p1.getZ(), p2.getZ()));
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) {
+      return true;
+    }
+    if (o == null || this.getClass() != o.getClass()) {
+      return false;
+    }
+    MyTriangle3D that = (MyTriangle3D) o;
+    return this.getP0().equals(that.getP0())
+        && this.getP1().equals(that.getP1())
+        && this.getP2().equals(that.getP2());
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(this.getP0(), this.getP1(), this.getP2());
   }
 
   public List<Coordinate> getCoordinates() {
-    return Arrays.asList(p0, p1, p2);
+    return Arrays.asList(this.p0, this.p1, this.p2);
   }
 
   /** 是否与平面 Z=z 相交 */
@@ -70,7 +86,7 @@ public class MyTriangle3D {
     }
     if (equalToZ.size() == 3) {
       return Arrays.asList(
-          new LineSegment(p0, p1), new LineSegment(p1, p2), new LineSegment(p2, p1));
+          new LineSegment(this.p0, this.p1), new LineSegment(this.p1, this.p2), new LineSegment(this.p2, this.p1));
     } else if (equalToZ.size() == 2) {
       return Collections.singletonList(new LineSegment(equalToZ.get(0), equalToZ.get(1)));
     } else if (equalToZ.size() == 1) {
@@ -79,12 +95,12 @@ public class MyTriangle3D {
       } else {
         return Collections.singletonList(
             new LineSegment(
-                equalToZ.get(0), findCutPointInLine(greaterThanZ.get(0), lessThanZ.get(0), z)));
+                equalToZ.get(0), this.findCutPointInLine(greaterThanZ.get(0), lessThanZ.get(0), z)));
       }
     } else {
       List<Coordinate> list = new ArrayList<>();
       greaterThanZ.forEach(
-          point1 -> lessThanZ.forEach(point2 -> list.add(findCutPointInLine(point1, point2, z))));
+          point1 -> lessThanZ.forEach(point2 -> list.add(this.findCutPointInLine(point1, point2, z))));
       return Collections.singletonList(new LineSegment(list.get(0), list.get(1)));
     }
   }
@@ -92,9 +108,9 @@ public class MyTriangle3D {
   /** 返回三条边与平面 Z=z 相交的点 */
   public List<Coordinate> findAllCutPoint(double z) {
     List<Coordinate> ans = new ArrayList<>();
-    Coordinate c1 = findCutPointInLine(p0, p1, z);
-    Coordinate c2 = findCutPointInLine(p0, p2, z);
-    Coordinate c3 = findCutPointInLine(p1, p2, z);
+    Coordinate c1 = this.findCutPointInLine(this.p0, this.p1, z);
+    Coordinate c2 = this.findCutPointInLine(this.p0, this.p2, z);
+    Coordinate c3 = this.findCutPointInLine(this.p1, this.p2, z);
     if (c1 != null) {
       ans.add(c1);
     }
