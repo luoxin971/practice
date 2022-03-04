@@ -33,12 +33,34 @@ import java.util.stream.Stream;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class MeshParse {
+public class MeshParser {
 
   List<MyTriangle3D> triangles = new ArrayList<>();
 
+  public List<XkExtrudedGeometry> parse() {
+    Stopwatch timer = Stopwatch.createStarted();
+    List<Set<MyTriangle3D>> buildings = this.blockSplit();
+    List<XkExtrudedGeometry> res =
+        buildings.parallelStream()
+            .map(ArrayList::new)
+            .flatMap(list -> this.transformToBuild(list).stream())
+            .collect(Collectors.toList());
+    res.forEach(
+        xkExtrudedGeometry -> {
+          System.out.println(xkExtrudedGeometry.getGeometry());
+          System.out.println(
+              "elevation:"
+                  + xkExtrudedGeometry.getElevation()
+                  + " high: "
+                  + xkExtrudedGeometry.getSelfHeight());
+        });
+    System.out.println(timer.stop());
+    return res;
+  }
+
   public List<Set<MyTriangle3D>> blockSplit() {
-    return blockSplit(this.triangles);
+    List<Set<MyTriangle3D>> sets = blockSplit(this.triangles);
+    return sets;
   }
 
   /**
@@ -119,7 +141,11 @@ public class MeshParse {
                 .flatMap(
                     coordinate ->
                         map.get(coordinate).stream()
-                            .flatMap(triangle -> triangle.getCoordinates().stream()))
+                            .flatMap(
+                                triangle ->
+                                    Objects.isNull(triangle)
+                                        ? Stream.empty()
+                                        : triangle.getCoordinates().stream()))
                 .distinct()
                 .filter(coordinate -> !coordinatesInBuilding.contains(coordinate))
                 .collect(Collectors.toSet());
@@ -133,6 +159,8 @@ public class MeshParse {
             set ->
                 set.stream()
                     .flatMap(coordinate -> map.get(coordinate).stream())
+                    // 不清楚哪里出现了 null 值
+                    .filter(Objects::nonNull)
                     .collect(Collectors.toSet()))
         .collect(Collectors.toList());
   }
@@ -157,7 +185,7 @@ public class MeshParse {
     final List<MyTriangle3D> triangleList =
         allTriangles.stream()
             // 是否加上精度要看实际情况如何
-            .filter(triangle -> triangle.maxZ != triangle.minZ)
+            .filter(triangle -> Objects.nonNull(triangle) && triangle.maxZ != triangle.minZ)
             .collect(Collectors.toList());
     // 找出所有点的z坐标，注意要去重和排序
     // TODO 考虑直接在一开始就将距离较近的点过滤，省的参与排序
@@ -414,19 +442,27 @@ public class MeshParse {
             && p1.getSecond().equals2D(p2.getFirst(), 1e-3);
   }
 
+  static void testParse() {
+    MeshParser meshParser = new MeshParser(MeshParser.generate());
+    while (true) {
+      List<XkExtrudedGeometry> parse = meshParser.parse();
+      System.out.println(parse);
+    }
+  }
+
   static void testBlockSplit() {
-    List<MyTriangle3D> triangle3DS = MeshParse.generate();
-    MeshParse meshParse = new MeshParse(triangle3DS);
-    List<Set<MyTriangle3D>> sets = meshParse.blockSplit(triangle3DS);
+    List<MyTriangle3D> triangle3DS = MeshParser.generate();
+    MeshParser meshParser = new MeshParser(triangle3DS);
+    List<Set<MyTriangle3D>> sets = meshParser.blockSplit(triangle3DS);
     // 打断点查看结果
     System.out.println(sets);
   }
 
   static void testTransformToBuilding() {
     Stopwatch timer = Stopwatch.createStarted();
-    List<MyTriangle3D> allTriangles = MeshParse.generate();
-    MeshParse meshParse = new MeshParse(allTriangles);
-    List<XkExtrudedGeometry> xkExtrudedGeometries = meshParse.transformToBuild(allTriangles);
+    List<MyTriangle3D> allTriangles = MeshParser.generate();
+    MeshParser meshParser = new MeshParser(allTriangles);
+    List<XkExtrudedGeometry> xkExtrudedGeometries = meshParser.transformToBuild(allTriangles);
     System.out.println(timer.stop());
     xkExtrudedGeometries.forEach(
         xkExtrudedGeometry -> {
@@ -441,9 +477,9 @@ public class MeshParse {
   }
 
   public static void main(String[] args) throws InterruptedException {
-    MeshParse.testBlockSplit();
-    MeshParse.testTransformToBuilding();
-
+    // MeshParse.testBlockSplit();
+    // MeshParse.testTransformToBuilding();
+    MeshParser.testParse();
     Thread.sleep(100000000);
   }
 
@@ -877,17 +913,17 @@ public class MeshParse {
             .collect(Collectors.toList());
     triangle3DList.addAll(triangle3DList2);
     triangle3DList.addAll(triangle3DList3);
-    triangle3DList.addAll(MeshParse.generateTri());
+    triangle3DList.addAll(MeshParser.generateTri());
     return triangle3DList;
   }
 
   static List<MyTriangle3D> generateTri() {
     List<Coordinate> coordinateList =
-        Lists.partition(MeshParse.generateDouble(), 3).stream()
+        Lists.partition(MeshParser.generateDouble(), 3).stream()
             .map(list -> new Coordinate(list.get(0), list.get(1), list.get(2)))
             .collect(Collectors.toList());
     List<MyTriangle3D> triangle3DList3 =
-        Lists.partition(MeshParse.generateInt(), 3).stream()
+        Lists.partition(MeshParser.generateInt(), 3).stream()
             .map(
                 list ->
                     new MyTriangle3D(
