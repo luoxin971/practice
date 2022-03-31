@@ -1,0 +1,43 @@
+/**
+ * Definition for a binary tree node.
+ * public class TreeNode {
+ *     int val;
+ *     TreeNode left;
+ *     TreeNode right;
+ *     TreeNode() {}
+ *     TreeNode(int val) { this.val = val; }
+ *     TreeNode(int val, TreeNode left, TreeNode right) {
+ *         this.val = val;
+ *         this.left = left;
+ *         this.right = right;
+ *     }
+ * }
+ */
+class Solution {
+    public boolean findTarget(TreeNode root, int k) {
+      Map<Integer, Boolean> map = new HashMap<>();
+      Deque<TreeNode> deque = new ArrayDeque<>();
+      deque.add(root);
+      while (!deque.isEmpty()) {
+        int size = deque.size();
+        for (int i = 0; i < size; i++) {
+          TreeNode pop = deque.pop();
+          if(map.containsKey(pop.val)) {
+            return true;
+          } else {
+            map.put(k - pop.val, true);
+          }
+          if(pop.left != null) {
+            deque.add(pop.left);
+          }
+          if(pop.right !=null) {
+            deque.add(pop.right);
+          }
+        }
+      }
+      return false;
+    }
+}
+
+//runtime:3 ms
+//memory:42 MB
