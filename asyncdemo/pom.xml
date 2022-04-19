@@ -8,11 +8,11 @@
         <version>2.5.2</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
-    <groupId>com.example</groupId>
-    <artifactId>demo</artifactId>
+    <groupId>com.luoxin</groupId>
+    <artifactId>asyncdemo</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>demo</name>
-    <description>demo</description>
+    <name>asyncdemo</name>
+    <description>asyncdemo</description>
     <properties>
         <java.version>1.8</java.version>
     </properties>
