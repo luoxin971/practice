@@ -1,0 +1,16 @@
+server:
+  port: 8080
+spring:
+  main:
+    web-application-type: reactive
+  application:
+    name: gateway-limiter
+  redis:
+    host: localhost
+    port: 6379
+    database: 0
+management:
+  endpoints:
+    web:
+      exposure:
+        include: '*'

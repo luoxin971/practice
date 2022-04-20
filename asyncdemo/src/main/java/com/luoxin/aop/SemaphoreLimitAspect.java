@@ -1,5 +1,6 @@
 package com.luoxin.aop;
 
+import com.sun.management.OperatingSystemMXBean;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.Signature;
@@ -9,6 +10,7 @@ import org.aspectj.lang.annotation.Pointcut;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 
+import java.lang.management.ManagementFactory;
 import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -36,6 +38,15 @@ public class SemaphoreLimitAspect {
     String name = signature.getName();
     String limitKey = getLimitKey(clz, name);
     Semaphore semaphore = semaphoreMap.get(limitKey);
+    OperatingSystemMXBean osBean = ManagementFactory.getPlatformMXBean(OperatingSystemMXBean.class);
+    double processCpuLoad = osBean.getSystemCpuLoad();
+    double memLoad =
+        1 - (double) osBean.getFreePhysicalMemorySize() / osBean.getTotalPhysicalMemorySize();
+    log.info("cpu usage: {}%", processCpuLoad);
+    log.info("mem usage: {}%", memLoad);
+    if (memLoad > 0.75) {
+      throw new RuntimeException("busy");
+    }
     // 立即获取许可证,非阻塞
     boolean flag = semaphore.tryAcquire();
     Object obj = null;

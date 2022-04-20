@@ -20,6 +20,17 @@ public class HelloController {
 
   @Resource ThreadPoolTaskExecutor taskExecutor;
 
+  @GetMapping("/aaa")
+  public String aaa() {
+    return "great";
+  }
+
+  @GetMapping("/bbb")
+  @SemaphoreLimit(limitKey = "SemaphoreKey", value = 30)
+  public String bbb() {
+    return "hhh";
+  }
+
   @GetMapping("/test")
   //    @Async("taskExecutor")
   @SemaphoreLimit(limitKey = "SemaphoreKey", value = 30)
