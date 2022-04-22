@@ -13,8 +13,8 @@ import java.lang.annotation.Target;
  */
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
-public @interface SemaphoreLimit {
-  String limitKey() default "";
+public @interface CpuAndMemLimit {
+  double cpuRate() default 100;
 
-  int value() default 0;
+  double memRate() default 100;
 }

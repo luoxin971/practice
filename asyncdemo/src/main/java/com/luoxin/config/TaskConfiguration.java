@@ -6,28 +6,25 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.Executor;
-import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadPoolExecutor;
 
-@EnableAsync
+@EnableAsync(proxyTargetClass = true)
 @Configuration
 public class TaskConfiguration {
-    @Bean("taskExecutor")
-    public Executor schedulingTaskExecutor() {
-        return initExecutor(4, 8, 100, new ThreadPoolExecutor.AbortPolicy(), "taskExecutor-");
-    }
 
-    private Executor initExecutor(int corePoolSize, int maxPoolSize, int queueCapacity, RejectedExecutionHandler rejectedExecutionHandler, String threadNamePrefix) {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(corePoolSize);
-        executor.setMaxPoolSize(maxPoolSize);
-        executor.setQueueCapacity(queueCapacity);
-        executor.setKeepAliveSeconds(60);
-        executor.setWaitForTasksToCompleteOnShutdown(true);
-        executor.setAwaitTerminationSeconds(60);
-        executor.setThreadNamePrefix(threadNamePrefix);
-        executor.setRejectedExecutionHandler(rejectedExecutionHandler);
-//        executor.setTaskDecorator(new ContextCopyingDecorator());
-        return executor;
-    }
+  @Bean("taskExecutor")
+  public Executor initExecutor() {
+    ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+    executor.setCorePoolSize(9);
+    executor.setMaxPoolSize(20);
+    executor.setQueueCapacity(100);
+    executor.setKeepAliveSeconds(60);
+    executor.setWaitForTasksToCompleteOnShutdown(true);
+    executor.setAllowCoreThreadTimeOut(true);
+    executor.setAwaitTerminationSeconds(60);
+    executor.setThreadNamePrefix("taskExecutor-");
+    executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+    //        executor.setTaskDecorator(new ContextCopyingDecorator());
+    return executor;
+  }
 }

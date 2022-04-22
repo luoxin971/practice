@@ -1,8 +1,12 @@
 package com.luoxin.controller;
 
+import com.luoxin.aop.CpuAndMemLimit;
 import com.luoxin.aop.SemaphoreLimit;
 import com.luoxin.aop.SemaphoreLimitAspect;
+import com.luoxin.aop.TrafficLimit;
 import com.luoxin.service.HelloService;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,11 +32,58 @@ public class HelloController {
   @GetMapping("/bbb")
   @SemaphoreLimit(limitKey = "SemaphoreKey", value = 30)
   public String bbb() {
-    return "hhh";
+    return "bbb";
+  }
+
+  @GetMapping("/ccc")
+  @TrafficLimit(limitKey = "ccc", value = 3)
+  public String ccc() {
+    return "ccc";
+  }
+
+  @GetMapping("/ddd")
+  @CpuAndMemLimit(cpuRate = 0.8, memRate = 0.8)
+  public String ddd() {
+    return "ddd";
+  }
+
+  @GetMapping("/eee")
+  @CpuAndMemLimit(cpuRate = 0.8, memRate = 0.8)
+  @TrafficLimit(limitKey = "eee", value = 2)
+  public String eee() {
+    return "ddd";
+  }
+
+  @GetMapping("/fff")
+  @CpuAndMemLimit(cpuRate = 0.8, memRate = 1)
+  @TrafficLimit(limitKey = "fff", value = 2)
+  public String fff() {
+    return "fff";
+  }
+
+  @GetMapping("/ggg")
+  @CircuitBreaker(name = "backendA")
+  public String ggg(String path) {
+    return helloService.ggg(path);
+  }
+
+  @GetMapping("/xxx")
+  public String xxx(String path) {
+    try {
+      return helloService.xxx(path);
+    } catch (CallNotPermittedException e) {
+      log.error("被限流了");
+    } catch (RuntimeException e) {
+      log.error(e.getMessage());
+    }
+    return "final";
+  }
+
+  public String gggFallback(Throwable e) {
+    return "ggg fallback";
   }
 
   @GetMapping("/test")
-  //    @Async("taskExecutor")
   @SemaphoreLimit(limitKey = "SemaphoreKey", value = 30)
   public String test(@RequestParam("path") String path) {
     try {
