@@ -9,7 +9,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadPoolExecutor;
 
-@EnableAsync
+@EnableAsync(proxyTargetClass = true)
 @Configuration
 public class TaskConfiguration {
     @Bean("taskExecutor")
