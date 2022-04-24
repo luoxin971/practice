@@ -5,8 +5,9 @@ import com.luoxin.aop.SemaphoreLimit;
 import com.luoxin.aop.SemaphoreLimitAspect;
 import com.luoxin.aop.TrafficLimit;
 import com.luoxin.service.HelloService;
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
-import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,6 +24,9 @@ public class HelloController {
   @Resource HelloService helloService;
 
   @Resource ThreadPoolTaskExecutor taskExecutor;
+
+  @Resource io.github.resilience4j.circuitbreaker.CircuitBreaker first;
+  @Resource io.github.resilience4j.ratelimiter.RateLimiter rateLimiter;
 
   @GetMapping("/aaa")
   public String aaa() {
@@ -62,8 +66,15 @@ public class HelloController {
   }
 
   @GetMapping("/ggg")
-  @CircuitBreaker(name = "backendA")
-  public String ggg(String path) {
+  @RateLimiter(name = "ratelimiter", fallbackMethod = "gggFallback")
+  public String ggg(String path) throws InterruptedException {
+    // Thread.sleep(5000);
+    return helloService.ggg(path);
+  }
+
+  @GetMapping("/abc")
+  public String abc(String path) {
+    log.warn("circuitBreaker status: {}", first.getState());
     return helloService.ggg(path);
   }
 
@@ -79,7 +90,33 @@ public class HelloController {
     return "final";
   }
 
-  public String gggFallback(Throwable e) {
+  @GetMapping("yyy")
+  @Bulkhead(name = "bulkhead", fallbackMethod = "gggFallback")
+  @RateLimiter(name = "ratelimiter")
+  public String yyy(String path) {
+    log.info("yes" + path);
+    return "yyy" + path;
+  }
+
+  @GetMapping("zzz")
+  public String zzz(String path) throws Exception {
+    System.out.println(rateLimiter.getMetrics());
+    String s = rateLimiter.executeCallable(() -> helloService.ggg(path));
+    log.info("yes" + path);
+    return "yyy" + path;
+  }
+
+  @GetMapping("xyz")
+  @RateLimiter(name = "ratelimiter")
+  public String xyz(String path) {
+    log.info(path + "进来了" + rateLimiter.getMetrics().getAvailablePermissions());
+    helloService.ggg(path);
+    log.info("yes" + path + rateLimiter.getMetrics().getAvailablePermissions());
+    return "yyy" + path;
+  }
+
+  public String gggFallback(String a, Throwable e) {
+    log.error("降级了dsafdsfdas");
     return "ggg fallback";
   }
 

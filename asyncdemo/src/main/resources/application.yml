@@ -37,3 +37,16 @@ resilience4j:
         meta:
           baseConfig: myDefault
           failureRateThreshold: 2 # 熔断器打开的失败阈值
+  ratelimiter:
+    configs:
+      default:
+        timeoutDuration: 5 # 线程等待权限的默认等待时间
+        limitRefreshPeriod: 1s # 限流器每隔1s刷新一次，将允许处理的最大请求重置为2
+        limitForPeriod: 2 #在一个刷新周期内，允许执行的最大请求数
+    instances:
+      bA:
+        baseConfig: default
+      bB:
+        timeoutDuration: 5
+        limitRefreshPeriod: 1s
+        limitForPeriod: 5

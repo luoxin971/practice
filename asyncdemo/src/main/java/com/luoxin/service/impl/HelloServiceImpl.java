@@ -27,13 +27,7 @@ public class HelloServiceImpl implements HelloService {
 
   @Override
   public String ggg(String path) {
-
-    if ("error".equals(path)) {
-      log.error("failed req");
-      throw new RuntimeException("error");
-    }
-    log.info("success");
-    return "ggg";
+    return "ggg" + path;
   }
 
   @Override
