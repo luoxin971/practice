@@ -66,6 +66,40 @@
             <artifactId>commons-math3</artifactId>
             <version>${apachemath3.version}</version>
         </dependency>
+
+        <dependency>
+            <groupId>org.jeasy</groupId>
+            <artifactId>easy-rules-core</artifactId>
+            <version>4.1.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jeasy</groupId>
+            <artifactId>easy-rules-mvel</artifactId>
+            <version>4.1.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.jeasy</groupId>
+            <artifactId>easy-rules-spel</artifactId>
+            <version>4.1.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.goebl</groupId>
+            <artifactId>simplify</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.jmonkeyengine</groupId>
+            <artifactId>jme3-core</artifactId>
+            <version>3.5.2-stable</version>
+        </dependency>
+
+        <dependency>
+            <groupId>us.ihmc</groupId>
+            <artifactId>jme3-dae</artifactId>
+            <version>3.5.0-stable</version>
+        </dependency>
     </dependencies>
 
 </project>
