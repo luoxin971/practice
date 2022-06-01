@@ -30,6 +30,7 @@ public class RegularUtil {
 
   private static double getQValue(List<Point> points, int k) {
     Map<Integer, LinkedHashMap<Integer, Double>> map = getMapInPoints(points);
+    double theta = getTheta(points.size());
     double sum =
         map.values().stream()
             .mapToDouble(
@@ -37,20 +38,20 @@ public class RegularUtil {
                     integerDoubleLinkedHashMap.values().stream()
                         .mapToDouble(Double::doubleValue)
                         .limit(k)
-                        .map(x -> x * x)
+                        .map(x -> 1 - getPE(x, theta))
                         .sum())
             .sum();
     return sum / (k * points.size());
   }
 
   static Map<Integer, LinkedHashMap<Integer, Double>> getMapInPoints(List<Point> points) {
-    processPoints(points);
+    List<Point> ps = processPoints(points);
     Map<Integer, LinkedHashMap<Integer, Double>> map = new HashMap<>();
-    points.forEach(
+    ps.forEach(
         p -> {
           LinkedHashMap<Integer, Double> linkedHashMap = new LinkedHashMap<>();
           Map<Integer, Double> integerDoubleMap =
-              points.stream()
+              ps.stream()
                   .filter(x -> !p.equals(x))
                   .collect(Collectors.toMap(x -> (int) x.getUserData(), x -> x.distance(p)));
           integerDoubleMap.entrySet().stream()
@@ -61,11 +62,21 @@ public class RegularUtil {
     return map;
   }
 
-  static void processPoints(List<Point> points) {
+  static List<Point> processPoints(List<Point> points) {
     AtomicInteger data = new AtomicInteger(MAX_POINT_NUM);
-    points.stream()
-        .filter(p -> Objects.nonNull(p.getUserData()))
-        .forEach(p -> p.setUserData(data.incrementAndGet()));
+    return points.stream()
+        .filter(p -> Objects.isNull(p.getUserData()))
+        .map(
+            p -> {
+              Point point = (Point) p.copy();
+              point.setUserData(data.incrementAndGet());
+              return point;
+            })
+        .collect(Collectors.toList());
+  }
+
+  private static double getPE(double distance, double theta) {
+    return theta / (theta + distance * distance);
   }
 
   private static double getPE(Point p1, Point p2, double theta) {
@@ -79,18 +90,32 @@ public class RegularUtil {
   }
 
   public static void main(String[] args) {
-    List<Point> points = generateRegularPoints();
-    System.out.println(getQValue(points, 5));
+    List<Point> regularPoints = generateRegularPoints();
+    List<Point> randomPoints = generateRandomPoints();
     XkPlotter xkPlotter = new XkPlotter();
-    points.forEach(x -> xkPlotter.addContent(x, Color.black));
+    randomPoints.forEach(x -> xkPlotter.addContent(x, Color.black));
     xkPlotter.plot();
-    System.out.println(getQValue(generateRandomPoints(), 5));
+    XkPlotter xkPlotter2 = new XkPlotter();
+    regularPoints.forEach(x -> xkPlotter2.addContent(x, Color.black));
+    xkPlotter2.plot();
+    System.out.println("k==2");
+    System.out.println(getQValue(regularPoints, 2));
+    System.out.println(getQValue(randomPoints, 2));
+    System.out.println("k==3");
+    System.out.println(getQValue(regularPoints, 3));
+    System.out.println(getQValue(randomPoints, 3));
+    System.out.println("k==5");
+    System.out.println(getQValue(regularPoints, 5));
+    System.out.println(getQValue(randomPoints, 5));
+    System.out.println("k==8");
+    System.out.println(getQValue(regularPoints, 8));
+    System.out.println(getQValue(randomPoints, 8));
   }
 
   private static List<Point> generateRegularPoints() {
     Point point = JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createPoint(new Coordinate(0, 0));
     List<Point> list = new ArrayList<>();
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 4; i++) {
       for (int j = 0; j < 4; j++) {
         list.add(PointUtil.movePoint(point, i, j));
       }
