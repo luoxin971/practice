@@ -31,7 +31,6 @@
 
 package com.luoxin.leetcode.editor.cn;
 
-import sun.reflect.generics.tree.Tree;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
