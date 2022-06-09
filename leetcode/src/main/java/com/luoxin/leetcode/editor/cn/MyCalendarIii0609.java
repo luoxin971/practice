@@ -49,16 +49,15 @@ import java.util.Random;
 import java.util.stream.IntStream;
 
 /**
- * 线段树，不带懒惰标记<br>
- * leetcode 显示超时，但根据下面 {@link #testValidate()} 结果显示，结果似乎都是一样的<br>
- * 为了验证解的正确性，缩小了数据量为题目要求的 1% <br>
+ * 线段树，带懒惰标记<br>
+ * 还是没能独立写完，之后可以在回头继续看看 <br>
  * 常规解法，参考 {@link MyCalendarIii0606}
  *
- * @date: 2022-06-08 20:37:12
+ * @date: 2022-06-09 20:10:41
  * @qid: 732
  * @title: 我的日程安排表 III
  */
-public class MyCalendarIii0608 {
+public class MyCalendarIii0609 {
   public static void main(String[] args) {
     testValidate();
     MyCalendarThree mc = new MyCalendarThree();
@@ -91,48 +90,62 @@ public class MyCalendarIii0608 {
                   .forEach(
                       djsflasjdfl -> {
                         Random random = new Random();
-                        int first = random.nextInt(1000000) * 10;
-                        int second = random.nextInt(10000000);
+                        int first = random.nextInt(10000000) * 100;
+                        int second = random.nextInt(1000000000);
                         int l = Math.min(first, second);
                         int r = Math.max(first, second);
                         int res1 = sCurent.book(l, r);
                         int res2 = sNormal.book(l, r);
-                        System.out.println(res1 == res2);
+                        if (res1 != res2) {
+                          System.out.println("-----------------------");
+                        }
+                        assert res1 == res2;
                       });
               System.out.println(abjdskl + " " + times);
             });
   }
-}
-// leetcode submit region begin(Prohibit modification and deletion)
-class MyCalendarThree {
+  // leetcode submit region begin(Prohibit modification and deletion)
+  static class MyCalendarThree {
 
-  private Map<Integer, Integer> map = new HashMap<>();
+    Map<Integer, Integer> segmentMap = new HashMap<>();
+    Map<Integer, Integer> lazyMap = new HashMap<>();
 
-  public MyCalendarThree() {}
+    public MyCalendarThree() {}
 
-  public int update(int start, int end, int left, int right, int index) {
-    if (end < left || start > right) {
-      return map.getOrDefault(index, 0);
+    public void update(int start, int end, int left, int right, int index) {
+      if (end < left || start > right) {
+        return;
+      }
+      if (start <= left && right <= end) {
+        segmentMap.put(index, segmentMap.getOrDefault(index, 0) + 1);
+        // 懒惰标记只在这一个地方 put，始终没有更新 child 的值，而是为了服务于父节点的
+        // 这种方式依情况而定，本题中，不需要求解某个区间的值，而是总是求最大值
+        lazyMap.put(index, lazyMap.getOrDefault(index, 0) + 1);
+        return;
+      }
+      int mid = left + (right - left) / 2;
+      update(start, end, left, mid, 2 * index);
+      update(start, end, mid + 1, right, 2 * index + 1);
+      // 懒惰标记与当前节点无关
+      segmentMap.put(
+          index,
+          lazyMap.getOrDefault(index, 0)
+              + Math.max(
+                  segmentMap.getOrDefault(2 * index, 0),
+                  segmentMap.getOrDefault(2 * index + 1, 0)));
     }
-    if (left == right) {
-      map.put(index, map.getOrDefault(index, 0) + 1);
-      return map.get(index);
-    }
-    int mid = left + (right - left) / 2;
-    int lc = update(start, end, left, mid, index * 2);
-    int rc = update(start, end, mid + 1, right, index * 2 + 1);
-    int max = Math.max(lc, rc);
-    map.put(index, max);
-    return max;
-  }
 
-  public int book(int start, int end) {
-    return update(start, end - 1, 0, 10000000, 1);
+    public int book(int start, int end) {
+
+      update(start, end - 1, 0, 1000000000, 1);
+      return segmentMap.getOrDefault(1, 0);
+    }
   }
-}
 
   /**
    * Your MyCalendarThree object will be instantiated and called as such: MyCalendarThree obj = new
    * MyCalendarThree(); int param_1 = obj.book(start,end);
    */
   // leetcode submit region end(Prohibit modification and deletion)
+
+}
