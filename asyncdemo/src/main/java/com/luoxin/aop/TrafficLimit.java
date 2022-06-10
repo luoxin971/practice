@@ -13,8 +13,9 @@ import java.lang.annotation.Target;
  */
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
-public @interface SemaphoreLimit {
+public @interface TrafficLimit {
+
   String limitKey() default "";
 
-  int value() default 0;
+  double value() default Double.MAX_VALUE;
 }
