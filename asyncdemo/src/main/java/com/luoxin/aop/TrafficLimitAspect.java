@@ -1,5 +1,6 @@
 package com.luoxin.aop;
 
+import com.google.common.util.concurrent.RateLimiter;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -12,20 +13,19 @@ import org.springframework.stereotype.Component;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Semaphore;
 
 @Component
 @Scope
 @Aspect
-@Order(1)
 @Slf4j
-public class SemaphoreLimitAspect {
+@Order(2)
+@SuppressWarnings("UnstableApiUsage")
+public class TrafficLimitAspect {
 
-  /** 存储限流量和方法,必须是static且线程安全,保证所有线程进入都唯一 */
-  public static Map<String, Semaphore> semaphoreMap = new ConcurrentHashMap<>();
+  public static Map<String, RateLimiter> trafficLimitMap = new ConcurrentHashMap<>();
 
   /** 业务层切点 */
-  @Pointcut("@annotation(com.luoxin.aop.SemaphoreLimit)")
+  @Pointcut("@annotation(com.luoxin.aop.TrafficLimit)")
   public void ServiceAspect() {}
 
   @Around("ServiceAspect()")
@@ -33,26 +33,21 @@ public class SemaphoreLimitAspect {
 
     MethodSignature signature = (MethodSignature) joinPoint.getSignature();
     TrafficLimit annotation = signature.getMethod().getAnnotation(TrafficLimit.class);
-    Semaphore semaphore = semaphoreMap.get(annotation.limitKey());
-    // 立即获取许可证,非阻塞
-    boolean flag = semaphore.tryAcquire();
+    RateLimiter rateLimiter = trafficLimitMap.get(annotation.limitKey());
     Object obj = null;
     try {
-      if (flag) {
-        // 拿到许可证则执行任务
+      // 拿到许可证则执行任务
+      if (rateLimiter.tryAcquire()) {
+        log.info("succeed! {}", rateLimiter.getRate());
         obj = joinPoint.proceed();
       } else {
         // 拒绝了请求（服务降级）
         obj = "系统繁忙，清稍后重试";
         log.error(obj.toString());
+        // throw new RuntimeException();
       }
     } catch (Throwable e) {
       e.printStackTrace();
-    } finally {
-      if (flag) {
-        // 拿到许可证后释放通行证
-        semaphore.release();
-      }
     }
     return obj;
   }

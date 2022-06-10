@@ -1,0 +1,52 @@
+server:
+  port: 8080
+spring:
+  #  main:
+  #    web-application-type: none
+  application:
+    name: gateway-limiter
+  redis:
+    host: localhost
+    port: 6379
+    database: 0
+management:
+  endpoints:
+    web:
+      exposure:
+        include: '*'
+resilience4j:
+  circuitbreaker:
+    configs:
+      myDefault:
+        waitDurationInOpenState: 1000 # 熔断器从打开到半开需要的时间
+        failureRateThreshold: 10 # 熔断器打开的失败阈值
+        eventConsumerBufferSize: 10 # 事件缓冲区大小
+        registerHealthIndicator: true # 健康监测
+        permittedNumberOfCallsInHalfOpenState: 10
+        automaticTransitionFromOpenToHalfOpenEnabled: true # 是否自动从打开到半开
+        #        recordFailurePredicate: com.example.resilience4j.predicate.RecordFailurePredicate # 谓词设置异常是否为失败
+        recordExceptions: # 记录的异常
+          - java.lang.Exception
+        ignoredExceptions:
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
+      instances:
+        backendA:
+          baseConfig: myDefault
+          waitDurationInOpenState: 1000
+          failureRateThreshold: 20
+        meta:
+          baseConfig: myDefault
+          failureRateThreshold: 2 # 熔断器打开的失败阈值
+  ratelimiter:
+    configs:
+      default:
+        timeoutDuration: 5 # 线程等待权限的默认等待时间
+        limitRefreshPeriod: 1s # 限流器每隔1s刷新一次，将允许处理的最大请求重置为2
+        limitForPeriod: 2 #在一个刷新周期内，允许执行的最大请求数
+    instances:
+      bA:
+        baseConfig: default
+      bB:
+        timeoutDuration: 5
+        limitRefreshPeriod: 1s
+        limitForPeriod: 5
