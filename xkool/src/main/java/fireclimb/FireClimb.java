@@ -5,6 +5,7 @@ import com.xkool.algo.util.geometry.XkGeometryIOUtil;
 import com.xkool.algo.util.geometry.XkGeometryUtil;
 import com.xkool.algo.util.geometry.XkLineSegmentUtil;
 import ga.constant.JtsConstant;
+import org.locationtech.jts.algorithm.Angle;
 import org.locationtech.jts.algorithm.MinimumDiameter;
 import org.locationtech.jts.algorithm.Orientation;
 import org.locationtech.jts.geom.*;
@@ -14,7 +15,15 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
- * content
+ * 消防登高，初步完成整个流程，需要进一步优化 <br>
+ *
+ * <ul>
+ *   <li>两个可行线段相连的情况
+ *   <li>重新梳理 ccw 相关的问题
+ *   <li>在复杂楼型上验证
+ * </ul>
+ *
+ * <p>TODO 1. 轮廓剔除短边 2. 凹角处两条线段的处理及后续逻辑调整
  *
  * @author luoxin
  * @since 2022/6/1
@@ -51,13 +60,6 @@ public class FireClimb {
     Map<int[], Double> map =
         circleSlideWindow(values, allBlankArea, Math.max(l1.getLength(), l2.getLength()));
     System.out.println(map);
-  }
-
-  void testSlideWindows() {
-    FireClimb fireClimb = new FireClimb();
-    List<Double> values = Arrays.asList(6.0, 2.0, 7.0, 5.0, 12.0, 13.0, 1.0, 9.0);
-    List<Double> distance = Arrays.asList(5.6, 2.7, 9.34, 6.9, 10.2, 9.9, 15.1, 2.1);
-    IntStream.range(0, 100).forEach(i -> fireClimb.circleSlideWindow(values, distance, i));
   }
 
   /**
@@ -128,6 +130,24 @@ public class FireClimb {
     return res;
   }
 
+  /**
+   * TODO 未完成<br>
+   * 处理 {@link #generateLines(Polygon)} 中线段相连的情况 <br>
+   * 可能情况有
+   * <li>成直角，分别做buffer，然后在后续步骤中，判断使用哪个
+   * <li>成钝角，直接buffer，距离太短的话（端点作垂线后在相交了），就舍弃？TODO 跟产品确认
+   * <li>成锐角，跟钝角类似
+   */
+  public void handleConnectedLine(
+      LineSegment first, LineSegment second, Polygon bufferLess, Polygon bufferMore) {
+    LineString firstLineString = first.toGeometry(JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT);
+    LineString secondLineString = second.toGeometry(JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT);
+    assert first.getCoordinate(1).distance(second.getCoordinate(0)) < 1e-3;
+    double angle =
+        Angle.angleBetween(first.getCoordinate(0), first.getCoordinate(1), second.getCoordinate(1));
+    if (Math.abs(angle - Math.PI / 2) < 0.05) {}
+  }
+
   /** 从一点出发，沿着某个方向延长一定距离，与 geometry 相交的第一个点 */
   public Point pointIntersectionGeometryAlongDirection(
       Point point, LineSegment direction, Geometry geometry, double maxAlongDistance) {
@@ -188,43 +208,6 @@ public class FireClimb {
     // System.out.println(difference);
 
     // return ring;
-  }
-
-  void testGetFragmentFromLinearRing() {
-    IntStream.range(0, 100)
-        .forEach(
-            djslafj -> {
-              Polygon geometry =
-                  (Polygon)
-                      XkCoordinateUtil.generateConvexHullOfCoordinateList(
-                          IntStream.range(0, 10)
-                              .mapToObj(
-                                  djslf ->
-                                      new Coordinate(
-                                          new Random().nextInt(100), new Random().nextInt(100)))
-                              .collect(Collectors.toList()));
-              Coordinate[] coordinates = geometry.getCoordinates();
-              int index = new Random().nextInt(coordinates.length - 1);
-              LineSegment lineSegment = new LineSegment(coordinates[index], coordinates[index + 1]);
-              Coordinate c = lineSegment.pointAlong(new Random().nextDouble());
-              int i2 = new Random().nextInt(coordinates.length - 1);
-              LineSegment l2 = new LineSegment(coordinates[i2], coordinates[i2 + 1]);
-              Coordinate c2 = l2.pointAlong(new Random().nextDouble());
-              LineString fragmentFromLinearRing =
-                  getFragmentFromLinearRing(
-                      geometry.getExteriorRing(),
-                      XkGeometryUtil.geometryFactory.createPoint(c),
-                      XkGeometryUtil.geometryFactory.createPoint(c2));
-              boolean s1 = fragmentFromLinearRing.getCoordinateN(0).distance(c) < 1e-3;
-              boolean s2 =
-                  fragmentFromLinearRing
-                          .getCoordinateN(fragmentFromLinearRing.getCoordinates().length - 1)
-                          .distance(c2)
-                      < 1e-3;
-              boolean b = fragmentFromLinearRing.distance(geometry.getExteriorRing()) < 1e-3;
-              assert s1 && s2 && b;
-              System.out.println(fragmentFromLinearRing.getCoordinates().length);
-            });
   }
 
   /**
@@ -365,6 +348,51 @@ public class FireClimb {
               return s1 && s2 && s3;
             });
   }
+
+  void testSlideWindows() {
+    FireClimb fireClimb = new FireClimb();
+    List<Double> values = Arrays.asList(6.0, 2.0, 7.0, 5.0, 12.0, 13.0, 1.0, 9.0);
+    List<Double> distance = Arrays.asList(5.6, 2.7, 9.34, 6.9, 10.2, 9.9, 15.1, 2.1);
+    IntStream.range(0, 100).forEach(i -> fireClimb.circleSlideWindow(values, distance, i));
+  }
+
+  void testGetFragmentFromLinearRing() {
+    IntStream.range(0, 100)
+        .forEach(
+            djslafj -> {
+              Polygon geometry =
+                  (Polygon)
+                      XkCoordinateUtil.generateConvexHullOfCoordinateList(
+                          IntStream.range(0, 10)
+                              .mapToObj(
+                                  djslf ->
+                                      new Coordinate(
+                                          new Random().nextInt(100), new Random().nextInt(100)))
+                              .collect(Collectors.toList()));
+              Coordinate[] coordinates = geometry.getCoordinates();
+              int index = new Random().nextInt(coordinates.length - 1);
+              LineSegment lineSegment = new LineSegment(coordinates[index], coordinates[index + 1]);
+              Coordinate c = lineSegment.pointAlong(new Random().nextDouble());
+              int i2 = new Random().nextInt(coordinates.length - 1);
+              LineSegment l2 = new LineSegment(coordinates[i2], coordinates[i2 + 1]);
+              Coordinate c2 = l2.pointAlong(new Random().nextDouble());
+              LineString fragmentFromLinearRing =
+                  getFragmentFromLinearRing(
+                      geometry.getExteriorRing(),
+                      XkGeometryUtil.geometryFactory.createPoint(c),
+                      XkGeometryUtil.geometryFactory.createPoint(c2));
+              boolean s1 = fragmentFromLinearRing.getCoordinateN(0).distance(c) < 1e-3;
+              boolean s2 =
+                  fragmentFromLinearRing
+                          .getCoordinateN(fragmentFromLinearRing.getCoordinates().length - 1)
+                          .distance(c2)
+                      < 1e-3;
+              boolean b = fragmentFromLinearRing.distance(geometry.getExteriorRing()) < 1e-3;
+              assert s1 && s2 && b;
+              System.out.println(fragmentFromLinearRing.getCoordinates().length);
+            });
+  }
+
   // todo 删除短边的作用是啥
 
   // Polygon deleteShortEdge(Polygon polygon) {
