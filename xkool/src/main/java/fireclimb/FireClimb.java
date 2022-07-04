@@ -42,7 +42,7 @@ public class FireClimb {
 
   public void solution(Polygon polygon) {
     // 初始化三个 polygon
-    p = (Polygon) JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createGeometry(polygon);
+    p = (Polygon) JtsConstant.GEOMETRY_FACTORY_FLOATING.createGeometry(polygon);
     p = Orientation.isCCW(p.getCoordinates()) ? p : p.reverse();
     buffer15 = (Polygon) p.buffer(15, -100);
     buffer5 = (Polygon) buffer15.buffer(-10, -100);
@@ -98,7 +98,7 @@ public class FireClimb {
               firstPointInL, direction, bufferMore.getExteriorRing(), 30);
       // l2m
       LineString l2m =
-          JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createLineString(
+          JtsConstant.GEOMETRY_FACTORY_FLOATING.createLineString(
               new Coordinate[] {firstPointInL.getCoordinate(), firstPointInM.getCoordinate()});
 
       // bufferLittle 上的第二个点
@@ -113,7 +113,7 @@ public class FireClimb {
               secondPointInL, d2, bufferMore.getExteriorRing(), 30);
       // ml2
       LineString m2l =
-          JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createLineString(
+          JtsConstant.GEOMETRY_FACTORY_FLOATING.createLineString(
               new Coordinate[] {secondPointInM.getCoordinate(), secondPointInL.getCoordinate()});
 
       LineString mFragment =
@@ -157,7 +157,7 @@ public class FireClimb {
     Coordinate end =
         new Coordinate(point.getX() + dx * multipleTimes, point.getY() + dy * multipleTimes);
     return (Point)
-        JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT
+        JtsConstant.GEOMETRY_FACTORY_FLOATING
             .createLineString(new Coordinate[] {point.getCoordinate(), end})
             .intersection(geometry)
             .getGeometryN(0);
@@ -190,7 +190,7 @@ public class FireClimb {
       }
     }
     LineString lineString =
-        JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createLineString(res.toArray(new Coordinate[0]));
+        JtsConstant.GEOMETRY_FACTORY_FLOATING.createLineString(res.toArray(new Coordinate[0]));
     return lineString;
     // List<LineSegment> lineSegments =
     // XkLineSegmentUtil.generateLineSegmentListFromLineString(ring);
@@ -227,7 +227,7 @@ public class FireClimb {
       all.addAll(sc);
     }
     Polygon polygon =
-        JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createPolygon(all.toArray(new Coordinate[0]));
+        JtsConstant.GEOMETRY_FACTORY_FLOATING.createPolygon(all.toArray(new Coordinate[0]));
     return polygon;
   }
 
@@ -257,7 +257,7 @@ public class FireClimb {
         .map(
             x ->
                 XkGeometryUtil.generateSingleSideBufferedGeometry(
-                        x.toGeometry(JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT), -5.00)
+                        x.toGeometry(JtsConstant.GEOMETRY_FACTORY_FLOATING), -5.00)
                     .intersection(bufferBoundary)
                     // p 是逆时针，buffer之后 intersection 的线段又变成了顺时针
                     .reverse())
@@ -268,7 +268,7 @@ public class FireClimb {
                     .forEach(
                         i ->
                             res.add(
-                                JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createLineString(
+                                JtsConstant.GEOMETRY_FACTORY_FLOATING.createLineString(
                                     new Coordinate[] {
                                       x.getCoordinates()[i], x.getCoordinates()[i + 1]
                                     })));

@@ -76,8 +76,8 @@ public class RegularScore {
 
   public static void main(String[] args) {
     Coordinate c1 = new Coordinate(0, 0);
-    Point point = JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createPoint(c1);
-    Point point2 = JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createPoint(c1);
+    Point point = JtsConstant.GEOMETRY_FACTORY_FLOATING.createPoint(c1);
+    Point point2 = JtsConstant.GEOMETRY_FACTORY_FLOATING.createPoint(c1);
     System.out.println(point.getSRID());
     System.out.println(point2.getSRID());
     System.out.println(point.getUserData());
