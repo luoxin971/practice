@@ -18,7 +18,7 @@ public class PointUtil {
 
   public static Polygon createConvexHullFromPoints(List<Point> points) {
     GeometryCollection geometryCollection =
-        JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createGeometryCollection(
+        JtsConstant.GEOMETRY_FACTORY_FLOATING.createGeometryCollection(
             points.toArray(new Point[0]));
     Geometry hull = geometryCollection.convexHull();
     return (Polygon) hull;

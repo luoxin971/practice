@@ -113,7 +113,7 @@ public class RegularUtil {
   }
 
   private static List<Point> generateRegularPoints() {
-    Point point = JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createPoint(new Coordinate(0, 0));
+    Point point = JtsConstant.GEOMETRY_FACTORY_FLOATING.createPoint(new Coordinate(0, 0));
     List<Point> list = new ArrayList<>();
     for (int i = 0; i < 4; i++) {
       for (int j = 0; j < 4; j++) {
@@ -124,7 +124,7 @@ public class RegularUtil {
   }
 
   private static List<Point> generateRandomPoints() {
-    Point point = JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createPoint(new Coordinate(0, 0));
+    Point point = JtsConstant.GEOMETRY_FACTORY_FLOATING.createPoint(new Coordinate(0, 0));
     List<Point> list = new ArrayList<>();
     IntStream.range(0, 20)
         .forEach(

@@ -22,7 +22,7 @@ import java.util.stream.IntStream;
  */
 public class ConvexHullInPoints {
   public static void main(String[] args) {
-    Point point = JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createPoint(new Coordinate(0, 0));
+    Point point = JtsConstant.GEOMETRY_FACTORY_FLOATING.createPoint(new Coordinate(0, 0));
     List<Point> list = new ArrayList<>();
     IntStream.range(0, 30)
         .forEach(
@@ -33,7 +33,7 @@ public class ConvexHullInPoints {
                         ((double) RandomUtils.nextInt(3000)) / 100.0,
                         ((double) RandomUtils.nextInt(3000)) / 100.0)));
     GeometryCollection geometryCollection =
-        JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createGeometryCollection(list.toArray(new Point[0]));
+        JtsConstant.GEOMETRY_FACTORY_FLOATING.createGeometryCollection(list.toArray(new Point[0]));
     Geometry hull = geometryCollection.convexHull();
     list.forEach(System.out::println);
     System.out.println(hull);
