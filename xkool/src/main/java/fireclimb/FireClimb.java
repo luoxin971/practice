@@ -1,15 +1,22 @@
 package fireclimb;
 
-import com.xkool.algo.util.geometry.XkCoordinateUtil;
 import com.xkool.algo.util.geometry.XkGeometryIOUtil;
 import com.xkool.algo.util.geometry.XkGeometryUtil;
 import com.xkool.algo.util.geometry.XkLineSegmentUtil;
+import com.xkool.algo.util.plotter.XkPlotter;
 import ga.constant.JtsConstant;
-import org.locationtech.jts.algorithm.Angle;
 import org.locationtech.jts.algorithm.MinimumDiameter;
 import org.locationtech.jts.algorithm.Orientation;
+import org.locationtech.jts.geom.Point;
+import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.geom.*;
+import org.locationtech.jts.math.Vector2D;
+import org.locationtech.jts.operation.buffer.BufferOp;
+import org.locationtech.jts.operation.buffer.BufferParameters;
+import org.locationtech.jts.simplify.TopologyPreservingSimplifier;
 
+import java.awt.*;
+import java.util.List;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -23,144 +30,311 @@ import java.util.stream.IntStream;
  *   <li>在复杂楼型上验证
  * </ul>
  *
- * <p>TODO 1. 轮廓剔除短边 2. 凹角处两条线段的处理及后续逻辑调整
+ * <p>TODO 1. 轮廓剔除短边 2. 斜线处理，read.get(3)
  *
  * @author luoxin
  * @since 2022/6/1
  */
 public class FireClimb {
 
-  private Polygon p;
+  private static final double PRECISION = 1e-3;
+  private Polygon originPolygon;
+
+  private Polygon simplifiedPolygon;
   private Polygon buffer5;
   private Polygon buffer15;
 
-  public static void main(String[] args) {
-    FireClimb fireClimb = new FireClimb();
-    List<Polygon> polygons = read();
-    fireClimb.solution(polygons.get(1));
-  }
-
-  public void solution(Polygon polygon) {
-    // 初始化三个 polygon
-    p = (Polygon) JtsConstant.GEOMETRY_FACTORY_FLOATING.createGeometry(polygon);
-    p = Orientation.isCCW(p.getCoordinates()) ? p : p.reverse();
-    buffer15 = (Polygon) p.buffer(15, -100);
-    buffer5 = (Polygon) buffer15.buffer(-10, -100);
-    buffer15 = Orientation.isCCW(buffer15.getCoordinates()) ? buffer15 : buffer15.reverse();
-    buffer5 = Orientation.isCCW(buffer5.getCoordinates()) ? buffer5 : buffer5.reverse();
-    p = (Polygon) buffer5.buffer(-5, -100);
-    p = Orientation.isCCW(p.getCoordinates()) ? p : p.reverse();
-
-    List<LineString> faces = generateLines(p);
-    List<Double> values = faces.stream().map(LineString::getLength).collect(Collectors.toList());
-    List<Double> allBlankArea = getAllBlankArea(faces, buffer5, buffer15);
-    Polygon m = (Polygon) new MinimumDiameter(p).getMinimumRectangle();
-    LineSegment l1 = new LineSegment(m.getCoordinates()[0], m.getCoordinates()[1]);
-    LineSegment l2 = new LineSegment(m.getCoordinates()[1], m.getCoordinates()[2]);
-    Map<int[], Double> map =
-        circleSlideWindow(values, allBlankArea, Math.max(l1.getLength(), l2.getLength()));
-    System.out.println(map);
+  public FireClimb(Polygon originPolygon) {
+    this.originPolygon = originPolygon;
+    initialize(originPolygon);
   }
 
   /**
+   * 全局入口
    *
+   * @param polygon 待生成登高面的轮廓
+   */
+  public List<FireClimbPlatformInfo> getFireClimbFaces(Polygon polygon) {
+    // 初始 polygon
+    initialize(polygon);
+    // 建筑上所有有效的登高面
+    List<LineSegment> faces = generateLines();
+    // 面宽
+    double width = getBuildingWidth();
+    System.out.println("----------------------");
+    // 获取所有的登高面
+    List<FireClimbPlatformInfo> handle = generatePlans(faces, width);
+    handle.forEach(x -> System.out.println(x.getPlatform()));
+    handle.forEach(
+        x -> {
+          XkPlotter xkPlotter = new XkPlotter();
+          xkPlotter.addContent(simplifiedPolygon, Color.blue);
+          xkPlotter.addContent(buffer5, Color.blue);
+          xkPlotter.addContent(buffer15, Color.blue);
+          xkPlotter.addContent(x.getPlatform().getBoundary().buffer(1), Color.red);
+          xkPlotter.plot();
+        });
+    System.out.println("end");
+    return handle;
+  }
+
+  /** 获取建筑面宽 */
+  private double getBuildingWidth() {
+    Polygon m = (Polygon) new MinimumDiameter(simplifiedPolygon).getMinimumRectangle();
+    LineSegment l1 = new LineSegment(m.getCoordinates()[0], m.getCoordinates()[1]);
+    LineSegment l2 = new LineSegment(m.getCoordinates()[1], m.getCoordinates()[2]);
+    return Math.max(l1.getLength(), l2.getLength());
+  }
+
+  /**
+   * 初始化 simplifiedPolygon, buffer5, buffer15
+   *
+   * @param polygon 建筑轮廓
+   */
+  public void initialize(Polygon polygon) {
+    originPolygon = (Polygon) JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createGeometry(polygon);
+    // 简化后的 polygon
+    Polygon simplify = (Polygon) TopologyPreservingSimplifier.simplify(originPolygon, 0.1);
+    simplifiedPolygon =
+        Orientation.isCCW(simplify.getCoordinates()) ? simplify.reverse() : simplify;
+
+    buffer15 = (Polygon) simplifiedPolygon.buffer(15, -100);
+    buffer5 = (Polygon) buffer15.buffer(-10, -100);
+    buffer15 = Orientation.isCCW(buffer15.getCoordinates()) ? buffer15.reverse() : buffer15;
+    buffer5 = Orientation.isCCW(buffer5.getCoordinates()) ? buffer5.reverse() : buffer5;
+  }
+
+  /**
+   * 找出所有有效的建筑消防轮廓线<br>
    *
    * <ol>
-   *   <li>找到 lines[i] 的终点 li，在 bufferMore 上的垂足 vi，连接 li vi
-   *   <li>找到 lines[i+1] 的起点 lj，在 bufferMore 上的垂足 vj，连接 vj lj
-   *   <li>bufferMore 从 vi 到 vj 的一段 折线 vi vj
-   *   <li>buffer5 从 lj 到 li 的一段 折线 lj li
-   *   <li>polygon = li vi + 折 vi vj + vj lj + 折 lj li
+   *   基本思想是
+   *   <li>将polygon向外buffer 5，得到一个轮廓线 bufferBoundary
+   *   <li>然后根据polygon轮廓上 lineString 找出其在 bufferBoundary 上对应的线段
    * </ol>
    *
-   * @param lines 需要都在 bufferLittle 上，且顺序按照逆时针
-   * @param bufferLittle
-   * @param bufferMore
-   * @return
+   * <p>关于 buffer 的信息具体可参考 {@link fireclimb.JTSBufferTest#main} <br>
+   * 存在问题:<br>
+   * <li>斜面、曲面 的生成结果有点奇怪
+   * <li>需要再多考虑一些细节
+   *
+   * @return 外轮廓上可以登高的面
    */
-  public List<Double> getAllBlankArea(
-      List<LineString> lines, Polygon bufferLittle, Polygon bufferMore) {
-    lines = lines.stream().filter(x -> !x.isEmpty()).collect(Collectors.toList());
-    List<Double> res = new ArrayList<>();
-    for (int i = 0; i < lines.size(); i++) {
-      LineString firstLine = lines.get(i);
-      LineString secondLine = lines.get((i + 1) % lines.size());
+  List<LineSegment> generateLines() {
+    Geometry boundary = buffer5.getBoundary();
+    Geometry buffer5Boundary =
+        Orientation.isCCW(boundary.getCoordinates()) ? boundary.reverse() : boundary;
+    List<LineSegment> buffer5BoundaryLineSegments =
+        XkLineSegmentUtil.generateLineSegmentListFromGeometry(buffer5Boundary);
+    List<LineSegment> res = new ArrayList<>();
+    // 对每一条边单独做 buffer，判断是否与 boundary 有交集
+    XkLineSegmentUtil.generateLineSegmentListFromGeometry(simplifiedPolygon).stream()
+        .map(
+            x ->
+                XkGeometryUtil.generateSingleSideBufferedGeometry(
+                        x.toGeometry(JtsConstant.GEOMETRY_FACTORY_FLOATING), 5.00)
+                    .intersection(buffer5Boundary))
+        .forEach(
+            x -> {
+              IntStream.range(0, x.getCoordinates().length - 1)
+                  .forEach(
+                      i -> {
+                        LineSegment lineSegment =
+                            new LineSegment(x.getCoordinates()[i], x.getCoordinates()[i + 1]);
+                        // 未知原因使得 intersection 的 lineSegment 与 buffer5 的方向不符，下面进行调整
+                        // 找出 lineSegment 在 buffer5 上所对应的边
+                        Optional<LineSegment> segmentOnBuffer5 =
+                            buffer5BoundaryLineSegments.stream()
+                                .filter(l -> l.distance(lineSegment.midPoint()) < PRECISION)
+                                .findFirst();
+                        // 肯定会有的
+                        if (segmentOnBuffer5.isPresent()) {
+                          // 如果不平行就要 reverse
+                          if (lineSegment.angle() - segmentOnBuffer5.get().angle() > PRECISION) {
+                            lineSegment.reverse();
+                          }
+                        }
+                        res.add(lineSegment);
+                      });
+            });
+    // 部分线段（主要存在与锐角的情况）buffer 5-15 后的 geometry 在 buffer5 里面，不符合要求，要剔除部分
+    for (int i = 0; i < res.size(); i++) {
+      // 沿着逆时针90度方向，向外移动 10m
+      LineSegment lineSegment = moveLineSegmentAlongVerticalDirection(res.get(i), 10);
+      LineString moveLine = lineSegment.toGeometry(JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT);
+      // 移动之后与 buffer5 是否有交集
+      Geometry intersection1 = moveLine.intersection(buffer5Boundary);
+      // 没有交集，说明不存在上述情况
+      if (intersection1.isEmpty()) {
+        continue;
+      }
+      // 否则就要进行截取片段
+      Point intersection = (Point) intersection1;
+      Coordinate co = new Coordinate(lineSegment.project(intersection.getCoordinate()));
 
-      // bufferLittle 上的第一个点
-      Point firstPointInL = firstLine.getEndPoint();
-      // 垂直方向
-      LineSegment direction =
-          XkLineSegmentUtil.rotateLineSegment(
-              XkLineSegmentUtil.getLineSegmentOfLineSegmentString(firstLine), firstPointInL, -90);
-      // firstPointInL 在 bufferMore 上的垂足
-      Point firstPointInM =
-          pointIntersectionGeometryAlongDirection(
-              firstPointInL, direction, bufferMore.getExteriorRing(), 30);
-      // l2m
-      LineString l2m =
-          JtsConstant.GEOMETRY_FACTORY_FLOATING.createLineString(
-              new Coordinate[] {firstPointInL.getCoordinate(), firstPointInM.getCoordinate()});
-
-      // bufferLittle 上的第二个点
-      Point secondPointInL = secondLine.getStartPoint();
-      // 垂直方向
-      LineSegment d2 =
-          XkLineSegmentUtil.rotateLineSegment(
-              XkLineSegmentUtil.getLineSegmentOfLineSegmentString(secondLine), secondPointInL, -90);
-      // secondPointInL 在 bufferMore 上的垂足
-      Point secondPointInM =
-          pointIntersectionGeometryAlongDirection(
-              secondPointInL, d2, bufferMore.getExteriorRing(), 30);
-      // ml2
-      LineString m2l =
-          JtsConstant.GEOMETRY_FACTORY_FLOATING.createLineString(
-              new Coordinate[] {secondPointInM.getCoordinate(), secondPointInL.getCoordinate()});
-
-      LineString mFragment =
-          getFragmentFromLinearRing(bufferMore.getExteriorRing(), firstPointInM, secondPointInM);
-      bufferLittle =
-          Orientation.isCCW(bufferLittle.getCoordinates()) ? bufferLittle.reverse() : bufferLittle;
-      LineString lFragment =
-          getFragmentFromLinearRing(bufferLittle.getExteriorRing(), secondPointInL, firstPointInL);
-
-      double area =
-          mergeLineStringsToPolygon(Arrays.asList(l2m, mFragment, m2l, lFragment)).getArea();
-      res.add(area);
+      // 验证一下 difference 与这个的差异
+      // System.out.println(moveLine.difference(buffer5));
+      if (buffer5.contains(moveLine.getStartPoint())) {
+        res.set(i, new LineSegment(co, res.get(i).getCoordinate(1)));
+      } else if (buffer5.contains(moveLine.getEndPoint())) {
+        res.set(i, new LineSegment(res.get(i).getCoordinate(1), co));
+      }
     }
     return res;
   }
 
-  /**
-   * TODO 未完成<br>
-   * 处理 {@link #generateLines(Polygon)} 中线段相连的情况 <br>
-   * 可能情况有
-   * <li>成直角，分别做buffer，然后在后续步骤中，判断使用哪个
-   * <li>成钝角，直接buffer，距离太短的话（端点作垂线后在相交了），就舍弃？TODO 跟产品确认
-   * <li>成锐角，跟钝角类似
-   */
-  public void handleConnectedLine(
-      LineSegment first, LineSegment second, Polygon bufferLess, Polygon bufferMore) {
-    LineString firstLineString = first.toGeometry(JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT);
-    LineString secondLineString = second.toGeometry(JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT);
-    assert first.getCoordinate(1).distance(second.getCoordinate(0)) < 1e-3;
-    double angle =
-        Angle.angleBetween(first.getCoordinate(0), first.getCoordinate(1), second.getCoordinate(1));
-    if (Math.abs(angle - Math.PI / 2) < 0.05) {}
+  /** 按逆时针 90 度方向，移动一定距离 */
+  public LineSegment moveLineSegmentAlongVerticalDirection(
+      LineSegment lineSegment, double distance) {
+    Vector2D vector2D = new Vector2D(lineSegment.getCoordinate(0), lineSegment.getCoordinate(1));
+    Vector2D rotate = vector2D.rotate(Math.PI / 2);
+    Vector2D multiply = rotate.normalize().multiply(distance);
+    return moveLineSegment(lineSegment, multiply);
   }
 
-  /** 从一点出发，沿着某个方向延长一定距离，与 geometry 相交的第一个点 */
-  public Point pointIntersectionGeometryAlongDirection(
-      Point point, LineSegment direction, Geometry geometry, double maxAlongDistance) {
-    double dx = direction.getCoordinate(1).getX() - direction.getCoordinate(0).getX();
-    double dy = direction.getCoordinate(1).getY() - direction.getCoordinate(0).getY();
-    double multipleTimes = maxAlongDistance / (Math.sqrt(dx * dx + dy * dy));
-    Coordinate end =
-        new Coordinate(point.getX() + dx * multipleTimes, point.getY() + dy * multipleTimes);
-    return (Point)
-        JtsConstant.GEOMETRY_FACTORY_FLOATING
-            .createLineString(new Coordinate[] {point.getCoordinate(), end})
-            .intersection(geometry)
-            .getGeometryN(0);
+  /** 移动点 */
+  public static Coordinate moveCoordinate(Coordinate coordinate, Vector2D move) {
+    return new Coordinate(coordinate.getX() + move.getX(), coordinate.getY() + move.getY());
+  }
+
+  /** 移动线 */
+  public static LineSegment moveLineSegment(LineSegment lineSegment, Vector2D move) {
+    return new LineSegment(
+        moveCoordinate(lineSegment.getCoordinate(0), move),
+        moveCoordinate(lineSegment.getCoordinate(1), move));
+  }
+
+  /**
+   * 生成多种方案<br>
+   * TODO 要考虑其他因素（红线、不可建区域）影响 buffer5 的情况
+   *
+   * <p>具体方法：
+   * <li>用滑动窗口，找到 ls 中所有满足条件的数量最少的线段
+   * <li>计算差值，在首尾两条线段上分别截取一部分，使有效长度刚好满足
+   * <li>计算其登高面
+   *
+   * @param ls buffer5 上的有效线段
+   * @param targetLength 目标的有效线段长度之和
+   * @return 返回所有找到的可行的消防登高面
+   */
+  public List<FireClimbPlatformInfo> generatePlans(List<LineSegment> ls, double targetLength) {
+    // 结果
+    List<FireClimbPlatformInfo> result = new ArrayList<>();
+    // 保存滑动窗口的结果，key: lastIndex, value: firstIndex
+    Map<Integer, Integer> map = getValidLineSegments(ls, targetLength);
+    int size = ls.size();
+    List<Double> lens = ls.stream().map(LineSegment::getLength).collect(Collectors.toList());
+
+    map.forEach(
+        (r, l) -> {
+          int end = r >= l ? r + 1 : r + size + 1;
+          List<LineSegment> lsInUse =
+              IntStream.range(l, end)
+                  .boxed()
+                  .map(i -> ls.get(i % size))
+                  .collect(Collectors.toList());
+          double currentSum =
+              IntStream.range(l, end).boxed().mapToDouble(i -> lens.get(i % size)).sum();
+
+          double gap = currentSum - targetLength;
+          LineSegment first = ls.get(l);
+          LineSegment last = ls.get(r);
+          Coordinate end1 =
+              findPointAlongLineSegment(
+                  new LineSegment(last.getCoordinate(0), last.getCoordinate(1)),
+                  last.getLength() - gap);
+          List<LineSegment> ls1 = new ArrayList<>(lsInUse);
+          ls1.set(ls1.size() - 1, new LineSegment(last.getCoordinate(0), end1));
+          Polygon r1 = calculateGeometryWithCoordinates(first.getCoordinate(0), end1, buffer5);
+          List<Polygon> b1 =
+              ls1.stream()
+                  .map(
+                      x ->
+                          lineStringSingleSizeBuffer(
+                              x.toGeometry(JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT), 10))
+                  .collect(Collectors.toList());
+          b1.add(r1);
+          Polygon g1 = (Polygon) XkGeometryUtil.generateUnionGeometryFromGeometryList(b1);
+          FireClimbPlatformInfo info1 = new FireClimbPlatformInfo(g1, ls1);
+          result.add(info1);
+          Coordinate start2 =
+              findPointAlongLineSegment(
+                  new LineSegment(first.getCoordinate(0), first.getCoordinate(1)), gap);
+          Polygon r2 = calculateGeometryWithCoordinates(start2, last.getCoordinate(1), buffer5);
+          List<LineSegment> ls2 = new ArrayList<>(lsInUse);
+          ls2.set(0, new LineSegment(start2, first.getCoordinate(1)));
+          List<Polygon> b2 =
+              ls2.stream()
+                  .map(
+                      x ->
+                          lineStringSingleSizeBuffer(
+                              x.toGeometry(JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT), 10))
+                  .collect(Collectors.toList());
+          b2.add(r2);
+          Polygon g2 = (Polygon) XkGeometryUtil.generateUnionGeometryFromGeometryList(b1);
+          FireClimbPlatformInfo info2 = new FireClimbPlatformInfo(g2, ls2);
+          result.add(info2);
+        });
+    return result;
+  }
+
+  public Map<Integer, Integer> getValidLineSegments(List<LineSegment> ls, double targetLength) {
+    Map<Integer, Integer> map = new HashMap<>();
+    List<Double> lens = ls.stream().map(LineSegment::getLength).collect(Collectors.toList());
+    if (lens.stream().mapToDouble(Double::doubleValue).sum() < targetLength) {
+      return Collections.emptyMap();
+    }
+    int size = lens.size();
+    // 已有的长度
+    double currentLength = lens.get(0);
+    // index
+    int left = 0;
+    int right = 0;
+    while (currentLength < targetLength && left < size && right < left + size) {
+      // 长度不够，right++
+      currentLength += lens.get((++right) % size);
+      while (currentLength >= targetLength) {
+        // 长度多了，left++
+        map.put(right % size, left % size);
+        currentLength -= lens.get(left % size);
+        ++left;
+      }
+    }
+    return map;
+  }
+
+  /** 根据 buffer5 上的起始两点，得到消防登高面 */
+  public Polygon calculateGeometryWithCoordinates(
+      Coordinate start, Coordinate end, Polygon polygon) {
+    LineString fragmentFromLinearRing =
+        getFragmentFromLinearRing(
+            polygon.getExteriorRing(),
+            JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createPoint(start),
+            JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createPoint(end));
+    return lineStringSingleSizeBuffer(fragmentFromLinearRing, 10);
+  }
+
+  /** 在给定参数下，对 lineString 做单侧 buffer */
+  public Polygon lineStringSingleSizeBuffer(LineString lineString, double distance) {
+    BufferParameters bufferParameters = new BufferParameters();
+    bufferParameters.setEndCapStyle(BufferParameters.CAP_FLAT);
+    bufferParameters.setJoinStyle(BufferParameters.JOIN_MITRE);
+    bufferParameters.setSingleSided(true);
+    bufferParameters.setMitreLimit(1.414);
+    BufferOp bufferOp = new BufferOp(lineString, bufferParameters);
+    return (Polygon) bufferOp.getResultGeometry(distance);
+  }
+
+  /** 找到沿 lineSegment 方向，距离为 distance 的点 */
+  public Coordinate findPointAlongLineSegment(LineSegment lineSegment, double distance) {
+    return lineSegment.pointAlong(distance / lineSegment.getLength());
+  }
+
+  /** 选择其中一个方案 */
+  public FireClimbPlatformInfo select(List<FireClimbPlatformInfo> list) {
+    return list.stream()
+        .max(Comparator.comparingDouble(x -> x.getPlatform().getArea()))
+        .orElse(null);
   }
 
   /**
@@ -179,247 +353,18 @@ public class FireClimb {
     boolean findFirst = true;
     for (int i = 0; i < 2 * size; ++i) {
       LineSegment ls = new LineSegment(coordinates[i % size], coordinates[(i + 1) % size]);
-      if (findFirst && ls.distance(first.getCoordinate()) < 1e-3) {
+      if (findFirst && ls.distance(first.getCoordinate()) < PRECISION) {
         res.add(coordinates[(i + 1) % size]);
         findFirst = false;
-      } else if (!findFirst && ls.distance(second.getCoordinate()) < 1e-3) {
+      } else if (!findFirst && ls.distance(second.getCoordinate()) < PRECISION) {
         res.add(second.getCoordinate());
         break;
       } else if (!findFirst) {
         res.add(coordinates[(i + 1) % size]);
       }
     }
-    LineString lineString =
-        JtsConstant.GEOMETRY_FACTORY_FLOATING.createLineString(res.toArray(new Coordinate[0]));
-    return lineString;
-    // List<LineSegment> lineSegments =
-    // XkLineSegmentUtil.generateLineSegmentListFromLineString(ring);
-    // LineSegment fl =
-    //     lineSegments.stream()
-    //         .max(Comparator.comparingDouble(x -> x.distance(first.getCoordinate())))
-    //         .orElse(lineSegments.get(0));
-    // int firstIndex = lineSegments.indexOf(fl);
-    // LineSegment sl =
-    //     lineSegments.stream()
-    //         .max(Comparator.comparingDouble(x -> x.distance(second.getCoordinate())))
-    //         .orElse(lineSegments.get(0));
-    // int secondIndex = lineSegments.indexOf(sl);
-    // Geometry difference = ring.difference(first);
-    // System.out.println(difference);
-
-    // return ring;
+    return JtsConstant.GEOMETRY_FACTORY_FLOATING.createLineString(res.toArray(new Coordinate[0]));
   }
-
-  /**
-   * 将 list 里的 LineString 围成一个 Polygon
-   *
-   * @param list 需要以此排列，且成环
-   * @return 围成的 Polygon
-   */
-  public Polygon mergeLineStringsToPolygon(List<LineString> list) {
-    List<Coordinate> all = new ArrayList<>();
-    for (LineString ls : list) {
-      Coordinate[] subCoordinates = ls.getCoordinates();
-      List<Coordinate> sc = Arrays.stream(subCoordinates).collect(Collectors.toList());
-      if (!all.isEmpty() && sc.get(0).distance(all.get(all.size() - 1)) < 1e-3) {
-        sc.remove(0);
-      }
-      all.addAll(sc);
-    }
-    Polygon polygon =
-        JtsConstant.GEOMETRY_FACTORY_FLOATING.createPolygon(all.toArray(new Coordinate[0]));
-    return polygon;
-  }
-
-  /**
-   * 找出所有的建筑消防轮廓线<br>
-   *
-   * <ol>
-   *   基本思想是
-   *   <li>将polygon向外buffer 5，得到一个轮廓线 bufferBoundary
-   *   <li>然后根据polygon轮廓上 lineString 找出其在 bufferBoundary 上对应的线段
-   * </ol>
-   *
-   * 关于 buffer 的信息具体可参考 {@link fireclimb.JTSBufferTest#main} <br>
-   * 存在问题:<br>
-   * <li>斜面、曲面 的生成结果有点奇怪
-   * <li>需要再多考虑一些细节
-   *
-   * @param polygon 建筑外轮廓
-   * @return
-   */
-  public List<LineString> generateLines(Polygon polygon) {
-    Geometry boundary = buffer5.getBoundary();
-    Geometry bufferBoundary =
-        Orientation.isCCW(boundary.getCoordinates()) ? boundary : boundary.reverse();
-    List<LineString> res = new ArrayList<>();
-    XkLineSegmentUtil.generateLineSegmentListFromGeometry(p).stream()
-        .map(
-            x ->
-                XkGeometryUtil.generateSingleSideBufferedGeometry(
-                        x.toGeometry(JtsConstant.GEOMETRY_FACTORY_FLOATING), -5.00)
-                    .intersection(bufferBoundary)
-                    // p 是逆时针，buffer之后 intersection 的线段又变成了顺时针
-                    .reverse())
-        .forEach(
-            x -> {
-              if (x instanceof LineString) {
-                IntStream.range(0, x.getCoordinates().length - 1)
-                    .forEach(
-                        i ->
-                            res.add(
-                                JtsConstant.GEOMETRY_FACTORY_FLOATING.createLineString(
-                                    new Coordinate[] {
-                                      x.getCoordinates()[i], x.getCoordinates()[i + 1]
-                                    })));
-              }
-            });
-    return res;
-  }
-
-  /**
-   * 已知一些成环状的节点，节点有各自的 value，节点间有 distance<br>
-   * 找出一个连续子序列，使得 valueSum >= minvalue, 且 distanceSum 最小<br>
-   *
-   * @param values 节点的 value > 0
-   * @param distance 节点间的 distance, distance[i] 表示节点i -> i+1 的 distance > 0
-   * @param minValue valueSum 需满足的最小值
-   * @return 满足条件的子序列的首尾的序数
-   */
-  public Map<int[], Double> circleSlideWindow(
-      List<Double> values, List<Double> distance, double minValue) {
-    if (values.stream().mapToDouble(Double::doubleValue).sum() < minValue) {
-      return Collections.emptyMap();
-    }
-    List<Double> valuesTemp = new ArrayList<>(values);
-    valuesTemp.addAll(values);
-    List<Double> distanceTemp = new ArrayList<>(distance);
-    distanceTemp.addAll(distance);
-    double currentValues = values.get(0);
-    int size = values.size();
-    Map<int[], Double> map = new HashMap<>(size * 2);
-    double currentDistance = 0;
-    int left = 0;
-    int right = 0;
-    // TODO  考虑 left >= right 的情况
-    while (currentValues < minValue && left < size) {
-      currentDistance += distanceTemp.get(right);
-      currentValues += valuesTemp.get(++right);
-      while (currentValues >= minValue) {
-        map.put(new int[] {left, right % size}, currentDistance);
-        currentDistance -= distanceTemp.get(left);
-        currentValues -= valuesTemp.get(left++);
-      }
-    }
-
-    // 校验有效性
-    System.out.println(validate(values, distance, minValue, map));
-
-    return map;
-  }
-
-  /**
-   * 校验 {@link fireclimb.FireClimb#circleSlideWindow(List, List, double)} 的结果是否正确
-   *
-   * @return true 没毛病，否则 false
-   */
-  private boolean validate(
-      List<Double> values, List<Double> distance, double minValue, Map<int[], Double> map) {
-    int size = values.size();
-    List<Double> valuesTemp = new ArrayList<>(values);
-    valuesTemp.addAll(values);
-    List<Double> distanceTemp = new ArrayList<>(distance);
-    distanceTemp.addAll(distance);
-    return map.entrySet().stream()
-        .allMatch(
-            entry -> {
-              int l = entry.getKey()[0];
-              int r = entry.getKey()[1];
-              r = l > r ? r + size : r;
-              double sum =
-                  valuesTemp.subList(l, r + 1).stream().mapToDouble(Double::doubleValue).sum();
-              boolean s1 = sum >= minValue;
-              boolean s2 = sum - valuesTemp.get(r) < minValue;
-              boolean s3 =
-                  Math.abs(
-                          distanceTemp.subList(l, r).stream().mapToDouble(Double::doubleValue).sum()
-                              - entry.getValue())
-                      < 1e-3;
-              return s1 && s2 && s3;
-            });
-  }
-
-  void testSlideWindows() {
-    FireClimb fireClimb = new FireClimb();
-    List<Double> values = Arrays.asList(6.0, 2.0, 7.0, 5.0, 12.0, 13.0, 1.0, 9.0);
-    List<Double> distance = Arrays.asList(5.6, 2.7, 9.34, 6.9, 10.2, 9.9, 15.1, 2.1);
-    IntStream.range(0, 100).forEach(i -> fireClimb.circleSlideWindow(values, distance, i));
-  }
-
-  void testGetFragmentFromLinearRing() {
-    IntStream.range(0, 100)
-        .forEach(
-            djslafj -> {
-              Polygon geometry =
-                  (Polygon)
-                      XkCoordinateUtil.generateConvexHullOfCoordinateList(
-                          IntStream.range(0, 10)
-                              .mapToObj(
-                                  djslf ->
-                                      new Coordinate(
-                                          new Random().nextInt(100), new Random().nextInt(100)))
-                              .collect(Collectors.toList()));
-              Coordinate[] coordinates = geometry.getCoordinates();
-              int index = new Random().nextInt(coordinates.length - 1);
-              LineSegment lineSegment = new LineSegment(coordinates[index], coordinates[index + 1]);
-              Coordinate c = lineSegment.pointAlong(new Random().nextDouble());
-              int i2 = new Random().nextInt(coordinates.length - 1);
-              LineSegment l2 = new LineSegment(coordinates[i2], coordinates[i2 + 1]);
-              Coordinate c2 = l2.pointAlong(new Random().nextDouble());
-              LineString fragmentFromLinearRing =
-                  getFragmentFromLinearRing(
-                      geometry.getExteriorRing(),
-                      XkGeometryUtil.geometryFactory.createPoint(c),
-                      XkGeometryUtil.geometryFactory.createPoint(c2));
-              boolean s1 = fragmentFromLinearRing.getCoordinateN(0).distance(c) < 1e-3;
-              boolean s2 =
-                  fragmentFromLinearRing
-                          .getCoordinateN(fragmentFromLinearRing.getCoordinates().length - 1)
-                          .distance(c2)
-                      < 1e-3;
-              boolean b = fragmentFromLinearRing.distance(geometry.getExteriorRing()) < 1e-3;
-              assert s1 && s2 && b;
-              System.out.println(fragmentFromLinearRing.getCoordinates().length);
-            });
-  }
-
-  // todo 删除短边的作用是啥
-
-  // Polygon deleteShortEdge(Polygon polygon) {
-  //   List<LineString> lineStrings =
-  // XkLineSegmentUtil.generateLineSegmentListFromLineString((LineString)
-  // polygon.getBoundary()).stream().map(x ->
-  // x.toGeometry(JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT)).collect(Collectors.toList());
-  //   for (int i = 1; i < lineStrings.size(); i++) {
-  //     lineStrings.get(i)
-  //   }
-  //   polygon.getBoundary()
-  // }
-
-  // List<LineString> deleteLineString(List<LineString> lineStrings) {
-  //   if(lineStrings.size()<=4) {
-  //     return lineStrings;
-  //   }
-  //   Optional<LineString> filter = lineStrings.stream().filter(x -> x.getLength() <
-  // 2).findFirst();
-  //   if(!filter.isPresent()) {
-  //     return lineStrings;
-  //   }
-  //   if(lineStrings.indexOf(filter.get()) == 0) {
-  //
-  //   }
-  //
-  // }
 
   static List<Polygon> read() {
     Polygon polygon =
