@@ -43,8 +43,8 @@ public class FireClimb {
 
   private static final double PRECISION = 1e-2;
 
-  private static final double POLYGON_SIMPLIFY_LENGTH_TOLERANCE = 5.0;
-  private static final double TOTAL_LENGTH_TOLERANCE = 1.0;
+  private static final double POLYGON_SIMPLIFY_LENGTH_TOLERANCE = 4.0;
+  private static final double TOTAL_LENGTH_TOLERANCE = 0.2;
   private static final double POLYGON_SIMPLIFY_ANGLE_TOLERANCE = Angle.toRadians(10);
   private Polygon originPolygon;
 
@@ -92,6 +92,7 @@ public class FireClimb {
       System.out.println("Invalid: " + this.originPolygon);
       return;
     }
+    System.out.println(title + "begin");
     list.forEach(x -> System.out.println(x.getPlatform()));
     list.forEach(
         x -> {
@@ -102,7 +103,7 @@ public class FireClimb {
           xkPlotter.addContent(x.getPlatform().getBoundary(), Color.red);
           xkPlotter.plot();
         });
-    System.out.println("end");
+    System.out.println(title + "end");
   }
 
   /** 全局入口 */
@@ -114,7 +115,6 @@ public class FireClimb {
     List<LineSegment> faces = generateLines();
     // 面宽
     double width = getBuildingWidth();
-    System.out.println("----------------------");
     // 获取所有的登高面
     List<FireClimbPlatformInfo> fireClimbPlatformInfos = generatePlans(faces, width);
     this.result = fireClimbPlatformInfos;
@@ -138,13 +138,21 @@ public class FireClimb {
     originPolygon = (Polygon) JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createGeometry(polygon);
     // 简化后的 polygon
     Polygon simplify = (Polygon) TopologyPreservingSimplifier.simplify(originPolygon, 0.05);
+    // 去掉 hole
+    simplify = JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createPolygon(simplify.getExteriorRing());
     simplifiedPolygon =
         // removePoint(originPolygon);
         Orientation.isCCW(simplify.getCoordinates()) ? simplify.reverse() : simplify;
 
-    buffer15 = (Polygon) simplifiedPolygon.buffer(15, -100);
-    buffer15 = removeShortEdge(buffer15);
-    buffer5 = (Polygon) buffer15.buffer(-10, -100);
+    //    buffer15 = (Polygon) simplifiedPolygon.buffer(15, -100);
+    //    buffer15 = removeShortEdge(buffer15);
+    //    buffer5 = (Polygon) buffer15.buffer(-10, -100);
+    //    buffer15 = Orientation.isCCW(buffer15.getCoordinates()) ? buffer15.reverse() : buffer15;
+    //    buffer5 = Orientation.isCCW(buffer5.getCoordinates()) ? buffer5.reverse() : buffer5;
+
+    buffer5 = (Polygon) simplifiedPolygon.buffer(5, -100);
+    buffer5 = removeShortEdge(buffer5);
+    buffer15 = (Polygon) buffer5.buffer(10, -100);
     buffer15 = Orientation.isCCW(buffer15.getCoordinates()) ? buffer15.reverse() : buffer15;
     buffer5 = Orientation.isCCW(buffer5.getCoordinates()) ? buffer5.reverse() : buffer5;
   }
@@ -208,7 +216,7 @@ public class FireClimb {
         return p1.getArea() > p2.getArea() ? removeShortEdge(p1) : removeShortEdge(p2);
       }
     }
-    return JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createPolygon(coordinates);
+    return (Polygon) JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT.createPolygon(coordinates).buffer(0);
   }
 
   /** 去除polygon中线段上的冗余点 */
@@ -256,50 +264,53 @@ public class FireClimb {
         XkLineSegmentUtil.generateLineSegmentListFromGeometry(buffer5Boundary);
     List<LineSegment> res = new ArrayList<>();
     // 对每一条边单独做 buffer，判断是否与 boundary 有交集
-    XkLineSegmentUtil.generateLineSegmentListFromGeometry(simplifiedPolygon).stream()
-        .flatMap(
-            x -> {
-              Geometry intersection =
-                  XkGeometryUtil.generateSingleSideBufferedGeometry(
-                          x.toGeometry(JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT), 10)
-                      .intersection(buffer5Boundary);
-              List<LineSegment> lineSegments =
-                  XkLineSegmentUtil.generateLineSegmentListFromGeometry(intersection);
-              return lineSegments.stream()
-                  .filter(
-                      ls ->
-                          ls.getLength() > 0.02
-                              && Angle.diff(Angle.diff(x.angle(), ls.angle()), Math.PI / 2)
-                                  > POLYGON_SIMPLIFY_ANGLE_TOLERANCE);
-            })
-        .forEach(
-            lineSegment -> {
-              if (lineSegment.getLength() < 0.02) {
-                return;
-              }
-              // 未知原因使得 intersection 的 lineSegment 与 buffer5 的方向不符，下面进行调整
-              // 找出 lineSegment 在 buffer5 上所对应的边
-              Optional<LineSegment> segmentOnBuffer5 =
-                  buffer5BoundaryLineSegments.stream()
-                      .filter(l -> l.distance(lineSegment.midPoint()) < PRECISION)
-                      .findFirst();
-              // 肯定会有的
-              if (segmentOnBuffer5.isPresent()) {
-                // 如果不平行就要 reverse
-                if (Angle.diff(lineSegment.angle(), segmentOnBuffer5.get().angle()) > PRECISION) {
-                  lineSegment.reverse();
-                }
-              } else {
-                System.out.println("bug");
-              }
-              res.add(lineSegment);
-            });
-    // 修建部分 lineSegment（主要是成锐角的部分）
-    deleteInvalidPartInLineSegment(buffer5Boundary, res);
-    res.sort(
+    List<LineSegment> allLineSegments =
+        XkLineSegmentUtil.generateLineSegmentListFromGeometry(simplifiedPolygon).stream()
+            .flatMap(
+                x -> {
+                  Geometry intersection =
+                      XkGeometryUtil.generateSingleSideBufferedGeometry(
+                              x.toGeometry(JtsConstant.GEOMETRY_FACTORY_TWO_DIGIT), 10)
+                          .intersection(buffer5Boundary);
+                  List<LineSegment> lineSegments =
+                      XkLineSegmentUtil.generateLineSegmentListFromGeometry(intersection);
+                  return lineSegments.stream()
+                      .filter(
+                          ls ->
+                              ls.getLength() > 0.02
+                                  && Angle.diff(Angle.diff(x.angle(), ls.angle()), Math.PI / 2)
+                                      > POLYGON_SIMPLIFY_ANGLE_TOLERANCE);
+                })
+            .collect(Collectors.toList());
+    // TODO 考虑一下处理 lineSegments 重叠的情况（主要是有些消防登高面被重复计算了）
+    allLineSegments.forEach(
+        lineSegment -> {
+          if (lineSegment.getLength() < 0.02) {
+            return;
+          }
+          // 未知原因使得 intersection 的 lineSegment 与 buffer5 的方向不符，下面进行调整
+          // 找出 lineSegment 在 buffer5 上所对应的边
+          Optional<LineSegment> segmentOnBuffer5 =
+              buffer5BoundaryLineSegments.stream()
+                  .filter(l -> l.distance(lineSegment.midPoint()) < PRECISION)
+                  .findFirst();
+          // 肯定会有的
+          if (segmentOnBuffer5.isPresent()) {
+            // 如果不平行就要 reverse
+            if (Angle.diff(lineSegment.angle(), segmentOnBuffer5.get().angle()) > PRECISION) {
+              lineSegment.reverse();
+            }
+          } else {
+            System.out.println("bug");
+          }
+          res.add(lineSegment);
+        });
+    // 修剪部分 lineSegment（主要是成锐角的部分）
+    List<LineSegment> lineSegments = deleteInvalidPartInLineSegment(buffer5Boundary, res);
+    lineSegments.sort(
         Comparator.comparingDouble(
             x -> getDistanceAlongGeometry(buffer5Boundary, x.getCoordinate(0))));
-    return res;
+    return lineSegments;
   }
 
   /** 部分线段（主要存在与锐角的情况）buffer 5-15 后的 geometry 在 buffer5 里面，不符合要求，要剔除部分 */
@@ -321,10 +332,11 @@ public class FireClimb {
 
       // 验证一下 difference 与这个的差异
       // System.out.println(moveLine.difference(buffer5));
+      Coordinate project = res.get(i).project(co);
       if (buffer5.contains(moveLine.getStartPoint())) {
-        res.set(i, new LineSegment(co, res.get(i).getCoordinate(1)));
+        res.set(i, new LineSegment(res.get(i).getCoordinate(1), project));
       } else if (buffer5.contains(moveLine.getEndPoint())) {
-        res.set(i, new LineSegment(res.get(i).getCoordinate(1), co));
+        res.set(i, new LineSegment(project, res.get(i).getCoordinate(1)));
       }
     }
     return res.stream().filter(x -> x.getLength() > 0.02).collect(Collectors.toList());
@@ -399,7 +411,7 @@ public class FireClimb {
     // 结果
     List<FireClimbPlatformInfo> result = new ArrayList<>();
     // 保存滑动窗口的结果，key: lastIndex, value: firstIndex
-    Map<Integer, Integer> map = generateValidLineStringInBuffer5(ls, targetLength);
+    Map<Integer, Integer> map = generateValidLineSegmentsInBuffer5(ls, targetLength);
     int size = ls.size();
 
     map.forEach(
@@ -410,7 +422,7 @@ public class FireClimb {
                   .boxed()
                   .map(i -> ls.get(i % size))
                   .collect(Collectors.toList());
-          List<List<LineSegment>> lists = trimLineString(lsInUse, targetLength);
+          List<List<LineSegment>> lists = generateValidLineStringInBuffer5(lsInUse, targetLength);
           lists.forEach(
               x ->
                   result.add(
@@ -430,7 +442,8 @@ public class FireClimb {
    * @param lsInUse
    * @param targetLength
    */
-  private List<List<LineSegment>> trimLineString(List<LineSegment> lsInUse, double targetLength) {
+  private List<List<LineSegment>> generateValidLineStringInBuffer5(
+      List<LineSegment> lsInUse, double targetLength) {
     double currentSum = lsInUse.stream().mapToDouble(LineSegment::getLength).sum();
 
     // 这一块要加一点误差容错
@@ -443,8 +456,9 @@ public class FireClimb {
     LineSegment trimLast = new LineSegment(last.getCoordinate(0), end1);
     // 此举是为了避免由于一定误差内，整个登高面增加了转角的面积
     // distance > 1 的判断只是粗略的
-    if (trimLast.getLength() < 1
-        && trimLast.distance(trimLastLineSegments.get(trimLastLineSegments.size() - 2)) > 1) {
+    if (trimLast.getLength() < TOTAL_LENGTH_TOLERANCE
+        && trimLast.distance(trimLastLineSegments.get(trimLastLineSegments.size() - 2))
+            > TOTAL_LENGTH_TOLERANCE) {
       trimLastLineSegments.remove(trimLastLineSegments.size() - 1);
     } else {
       trimLastLineSegments.set(trimLastLineSegments.size() - 1, trimLast);
@@ -453,11 +467,12 @@ public class FireClimb {
     Coordinate start1 = findPointAlongLineSegment(first, gap);
     LineSegment trimFirst = new LineSegment(start1, first.getCoordinate(1));
     List<LineSegment> trimFirstLineSegments = new ArrayList<>(lsInUse);
-    if (trimFirst.getLength() < 1
-        && trimFirst.distance(trimFirstLineSegments.get(trimFirstLineSegments.size() - 2)) > 1) {
+    if (trimFirst.getLength() < TOTAL_LENGTH_TOLERANCE
+        && trimFirst.distance(trimFirstLineSegments.get(trimFirstLineSegments.size() - 2))
+            > TOTAL_LENGTH_TOLERANCE) {
       trimFirstLineSegments.remove(0);
     } else {
-      trimFirstLineSegments.set(trimFirstLineSegments.size() - 1, trimLast);
+      trimFirstLineSegments.set(0, trimFirst);
     }
     return Arrays.asList(trimFirstLineSegments, trimLastLineSegments);
   }
@@ -469,7 +484,7 @@ public class FireClimb {
    * @param targetLength 目标长度
    * @return key: index 区间右界 value: index 区间左界
    */
-  public Map<Integer, Integer> generateValidLineStringInBuffer5(
+  public Map<Integer, Integer> generateValidLineSegmentsInBuffer5(
       List<LineSegment> ls, double targetLength) {
     Map<Integer, Integer> map = new HashMap<>();
     List<Double> lens = ls.stream().map(LineSegment::getLength).collect(Collectors.toList());
@@ -536,7 +551,8 @@ public class FireClimb {
   /** 选择其中一个方案 */
   public FireClimbPlatformInfo handle() {
     return getFireClimbFaces().stream()
-        .min(Comparator.comparingDouble(x -> x.getPlatform().getArea()))
+        //        .min(Comparator.comparingDouble(x -> x.getPlatform().getArea()))
+        .min(Comparator.comparingDouble(x -> x.getPlatform().getCoordinates().length))
         .orElse(null);
   }
 

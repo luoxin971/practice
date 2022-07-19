@@ -35,16 +35,19 @@ public class FireClimbTest {
   @Test
   public void test() throws IOException, InterruptedException {
     BufferedReader reader =
-        new BufferedReader(new FileReader("/Users/luoxin/Documents/temp/fireclimb/outlines.txt"));
+        new BufferedReader(
+            new FileReader("C:\\Users\\xin\\PycharmProjects\\pythonProject\\outlines3.txt"));
     String line;
     List<Polygon> list = new ArrayList<>();
     while ((line = reader.readLine()) != null) {
       Polygon polygon = (Polygon) XkGeometryIOUtil.fromGeoJson(line);
       list.add(polygon);
     }
-    List<Integer> indexs = IntStream.range(0, 200).boxed().collect(Collectors.toList());
-    // Arrays.asList(0, 4, 41, 51, 62, 77, 19, 50, 91, 100, 129, 151, 185, 160);
-    Arrays.asList(90, 62);
+    List<Integer> indexs =
+        // Arrays.asList(0, 4, 41, 51, 62, 77, 19, 50, 91, 100, 129, 151, 185, 160);
+        IntStream.range(0, 72).boxed().collect(Collectors.toList());
+    Arrays.asList(66, 7);
+
     reader.close();
     List<FireClimb> fireClimbs = new ArrayList<>();
     indexs.forEach(
