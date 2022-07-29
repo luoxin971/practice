@@ -13,7 +13,7 @@
         <maven.compiler.target>8</maven.compiler.target>
         <jts-core.version>1.18.0</jts-core.version>
         <xkalgo.util.verion>1.1.5-SNAPSHOT</xkalgo.util.verion>
-        <xkcommon.version>4.5.0-SNAPSHOT</xkcommon.version>
+        <xkcommon.version>4.7.0-SNAPSHOT</xkcommon.version>
         <guava.version>31.0.1-jre</guava.version>
         <apachemath3.version>3.6.1</apachemath3.version>
     </properties>

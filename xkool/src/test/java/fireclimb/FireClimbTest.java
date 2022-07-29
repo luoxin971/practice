@@ -4,22 +4,15 @@ import com.xkool.algo.util.constant.GeometryConstant;
 import com.xkool.algo.util.geometry.XkCoordinateUtil;
 import com.xkool.algo.util.geometry.XkGeometryIOUtil;
 import com.xkool.algo.util.geometry.XkGeometryUtil;
-import com.xkool.algo.util.plotter.XkPlotter;
 import org.junit.Assert;
 import org.junit.Test;
-import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.geom.*;
 import org.locationtech.jts.operation.buffer.BufferOp;
 import org.locationtech.jts.operation.buffer.BufferParameters;
-import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
-import org.locationtech.jts.simplify.TopologyPreservingSimplifier;
-import org.locationtech.jts.simplify.VWSimplifier;
 
-import java.awt.*;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
-import java.util.List;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -36,7 +29,7 @@ public class FireClimbTest {
   public void test() throws IOException, InterruptedException {
     BufferedReader reader =
         new BufferedReader(
-            new FileReader("C:\\Users\\xin\\PycharmProjects\\pythonProject\\outlines3.txt"));
+            new FileReader("/Users/luoxin/Documents/xk_dev/practice/xkool/resources/outlines.txt"));
     String line;
     List<Polygon> list = new ArrayList<>();
     while ((line = reader.readLine()) != null) {
@@ -45,11 +38,16 @@ public class FireClimbTest {
     }
     List<Integer> indexs =
         // Arrays.asList(0, 4, 41, 51, 62, 77, 19, 50, 91, 100, 129, 151, 185, 160);
-        IntStream.range(0, 72).boxed().collect(Collectors.toList());
-    Arrays.asList(66, 7);
+        IntStream.range(0, list.size()).boxed().collect(Collectors.toList());
+    Arrays.asList(10);
+    // Arrays.asList(119, 117, 115, 112, 109, 87, 74, 43, 15); // outline4
+    // Arrays.asList(1, 5, 7, 12, 17, 20, 33, 34, 37, 40, 41); // outline3
+    // Arrays.asList(19, 14, 13, 12, 11, 9, 6); // outline6
 
     reader.close();
+
     List<FireClimb> fireClimbs = new ArrayList<>();
+
     indexs.forEach(
         i -> {
           Polygon x = list.get(i);
@@ -61,13 +59,6 @@ public class FireClimbTest {
     for (int i = 0; i < 10000000; i++) {
       Thread.sleep(1000);
     }
-  }
-
-  @Test
-  public void solution() throws InterruptedException {
-    List<Polygon> polygons = FireClimb.read();
-    polygons.forEach(x -> new FireClimb(x).getFireClimbFaces());
-    Thread.sleep(100000000);
   }
 
   @Test
@@ -106,7 +97,7 @@ public class FireClimbTest {
               // 调用
               LineString fragmentFromLinearRing =
                   new FireClimb(GeometryConstant.POLYGON_EMPTY)
-                      .getFragmentFromLinearRing(geometry.getExteriorRing(), c1, c2);
+                      .getFragmentFromLinearRing(geometry.getExteriorRing(), c1, c2, false);
               // 开头为 c1
               boolean s1 = fragmentFromLinearRing.getCoordinateN(0).distance(c1) < 1e-3;
               // 结尾为 c2
@@ -147,35 +138,7 @@ public class FireClimbTest {
   }
 
   @Test
-  public void simplify() throws InterruptedException {
-    List<Polygon> read = FireClimb.read();
-    read.forEach(
-        polygon -> {
-          System.out.println(read.indexOf(polygon));
-          System.out.println(polygon);
-          Geometry simplify = TopologyPreservingSimplifier.simplify(polygon, 0.1);
-          Geometry simplify1 = DouglasPeuckerSimplifier.simplify(polygon, 0.1);
-          Geometry simplify2 = VWSimplifier.simplify(polygon, 0.4);
-          Geometry g3 = polygon.buffer(0.1).buffer(-0.1);
-          System.out.println(simplify);
-          System.out.println(simplify1);
-          System.out.println(simplify2);
-          System.out.println(g3);
-          XkPlotter xkPlotter = new XkPlotter();
-          xkPlotter.addContent(polygon, Color.red);
-          // xkPlotter.addContent(simplify, Color.blue);
-          xkPlotter.addContent(simplify1, Color.green);
-          // xkPlotter.addContent(simplify3, Color.gray);
-          xkPlotter.plot();
-          try {
-            Thread.sleep(2000);
-          } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-          }
-          System.out.println("-----");
-        });
-    Thread.sleep(1000000000);
-  }
+  public void simplify() throws InterruptedException {}
 
   @Test
   public void moveLineSegmentAlongVerticalDirection() {
@@ -189,9 +152,8 @@ public class FireClimbTest {
 
   @Test
   public void ttt() {
-    List<Integer> list = IntStream.range(0, 10).boxed().collect(Collectors.toList());
-    handle(list);
-    System.out.println(list);
+    // XkJsonUtil.loads()
+
   }
 
   public void handle(List<Integer> list) {
