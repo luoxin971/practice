@@ -2,8 +2,6 @@ package fireclimb;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.collection.CollectionUtil;
-import cn.hutool.core.collection.ListUtil;
-import com.xkool.algo.util.constant.GeometryConstant;
 import com.xkool.algo.util.geometry.XkGeometryUtil;
 import com.xkool.algo.util.geometry.XkLineSegmentUtil;
 import com.xkool.algo.util.plotter.XkPlotter;
@@ -49,31 +47,14 @@ public class FireClimb {
   private Polygon afterPolygon;
 
   private Polygon simplifiedPolygon;
+
   private Polygon buffer5;
-  public List<Polygon> lll = new ArrayList<>();
 
   private List<FireClimbPlatformInfo> result;
 
   public FireClimb(Polygon originPolygon) {
     this.originPolygon = originPolygon;
     initialize(originPolygon);
-  }
-
-  public void showAllOutcome(List<FireClimbPlatformInfo> list) {
-    if (CollUtil.isEmpty(list) || CollUtil.hasNull(list)) {
-      System.out.println("Invalid: " + this.originPolygon);
-      return;
-    }
-    list.forEach(x -> System.out.println(x.getPlatform()));
-    list.forEach(
-        x -> {
-          XkPlotter xkPlotter = new XkPlotter();
-          xkPlotter.addContent(this.simplifiedPolygon, Color.blue);
-          xkPlotter.addContent(buffer5, Color.blue);
-          xkPlotter.addContent(x.getPlatform().getBoundary().buffer(1), Color.red);
-          xkPlotter.plot();
-        });
-    System.out.println("end");
   }
 
   public void showAllOutcome(List<FireClimbPlatformInfo> list, String title) {
@@ -100,8 +81,16 @@ public class FireClimb {
     System.out.println(title + "end");
   }
 
-  /** 全局入口 */
-  public List<FireClimbPlatformInfo> getFireClimbFaces() {
+  /** 选择默认方案，面积最小 */
+  public FireClimbPlatformInfo getDefaultPlatform() {
+    return getAllPlatforms().stream()
+        .min(Comparator.comparingDouble(x -> x.getPlatform().getArea()))
+        // .min(Comparator.comparingDouble(x -> x.getPlatform().getCoordinates().length))
+        .orElseThrow(() -> new RuntimeException("无法生成"));
+  }
+
+  /** 获取所有登高面 */
+  public List<FireClimbPlatformInfo> getAllPlatforms() {
     if (!CollUtil.isEmpty(result)) {
       return result;
     }
@@ -110,52 +99,14 @@ public class FireClimb {
     // 面宽
     double width = getBuildingWidth();
     // 获取所有的登高面
-    List<FireClimbPlatformInfo> fireClimbPlatformInfos = generatePlans(faces, width);
+    List<FireClimbPlatformInfo> fireClimbPlatformInfos =
+        getAllPlatforms(originPolygon, buffer5, faces, width);
     this.result = fireClimbPlatformInfos;
     return fireClimbPlatformInfos;
   }
 
   /**
-   * 通过 buffer5 上的起点和方向找出消防登高面
-   *
-   * @param start buffer5 上的起点
-   * @param isCCW 是否逆时针
-   * @return 消防登高面
-   */
-  public FireClimbPlatformInfo getFirePlatformWithStartPoint(Coordinate start, boolean isCCW) {
-    // 找到 start 在 simplifiedPolygon, buffer5 上对应的点
-    // 找到 validLines 长度为面宽的线段，及其终点 end
-    // buffer5 上 start 到 end 的线段在 buffer 10 之后的结果作为登高面
-
-    // 找到 start 在 simplifiedPolygon 上对应的点
-    List<LineSegment> lineSegmentsInSimplified =
-        XkLineSegmentUtil.generateLineSegmentListFromGeometry(this.simplifiedPolygon);
-    LineSegment closestLineSegmentInSimplified =
-        lineSegmentsInSimplified.stream()
-            .min(Comparator.comparingDouble(ls -> ls.distance(start)))
-            .orElse(lineSegmentsInSimplified.get(0));
-    // simplifiedPolygon 上距离 start 最近的点
-    Coordinate coordinateInSimplified = closestLineSegmentInSimplified.closestPoint(start);
-    // 找到 start 在 buffer5 上对应的点
-    List<LineSegment> lineSegmentsInBuffer5 =
-        XkLineSegmentUtil.generateLineSegmentListFromGeometry(this.buffer5);
-    LineSegment closestLineSegmentInBuffer5 =
-        lineSegmentsInBuffer5.stream()
-            .min(Comparator.comparingDouble(ls -> ls.distance(start)))
-            .orElse(lineSegmentsInBuffer5.get(0));
-    // buffer5 上距离 start 最近的点
-    Coordinate coordinateInBuffer5 = closestLineSegmentInBuffer5.closestPoint(start);
-    List<LineSegment> validLines = generateLines();
-    if (isCCW) {
-      validLines = ListUtil.reverse(validLines);
-    }
-
-    // validLines.
-    return new FireClimbPlatformInfo(GeometryConstant.POLYGON_EMPTY, Collections.emptyList());
-  }
-
-  /**
-   * 根据 buffer5 轮廓，起点，方向求出登高面
+   * 根据 polygon 轮廓，起点，方向求出登高面
    *
    * <ol>
    *   主要思路：
@@ -174,10 +125,10 @@ public class FireClimb {
    * @return 消防登高面
    */
   public FireClimbPlatformInfo getFirePlatformWithStartPoint(
-      Polygon polygon, double targetLength, Coordinate start, boolean isCCW) throws Exception {
+      Polygon polygon, double targetLength, Coordinate start, boolean isCCW) {
     // TODO 先只考虑 polygon 的情况
     // polygon 上的有效线段，validLineSegments 顺时针排列
-    List<LineSegment> validLineSegments = generateLines(polygon);
+    List<LineSegment> validLineSegments = generateLines(polygon, simplifiedPolygon);
     if (isCCW) {
       // 如果指定逆时针，则需要调整 validLineSegments 方向和顺序
       validLineSegments = CollectionUtil.reverse(validLineSegments);
@@ -201,41 +152,59 @@ public class FireClimb {
     // 如果起点在有效线段上，就将其一分为二
     if (validLineSegments.get(0).distance(startCoordinate) < PRECISION) {
       LineSegment firstLine = validLineSegments.get(0);
-      validLineSegments.set(0, new LineSegment(startCoordinate, firstLine.p1));
-      validLineSegments.add(new LineSegment(firstLine.p0, startCoordinate));
+      LineSegment preLine = new LineSegment(startCoordinate, firstLine.p1);
+      if (preLine.getLength() < FireClimbConstant.PRECISION) {
+        validLineSegments.remove(0);
+      } else {
+        validLineSegments.set(0, preLine);
+      }
+      LineSegment line = new LineSegment(firstLine.p0, startCoordinate);
+      if (line.getLength() > FireClimbConstant.PRECISION) {
+        validLineSegments.add(line);
+      }
     }
     // 找到有效线段长度刚好为 targetLength 的 LineString 的终点
     List<Double> validDistance = new ArrayList<>();
     validDistance.add(0.);
     List<LineSegment> finalValidLineSegments = validLineSegments;
-    IntStream.range(0, validDistance.size())
+    IntStream.range(0, validLineSegments.size())
         .forEach(
             i ->
                 validDistance.add(
                     validDistance.get(i) + finalValidLineSegments.get(i).getLength()));
-    // endIndex 是 validDistance 的 index，endIndex -1 才是对应 validLineSegments 的 index
-    int endIndex = Arrays.binarySearch(validDistance.toArray(new Double[0]), targetLength);
-    if (endIndex > validLineSegments.size()) {
-      // 说明总长度不够
-      throw new Exception("不可以");
+    // validDistance.get(i) 为 validLineSegments 0-i（双闭区间） 线段长度之和
+    validDistance.remove(0);
+    // 刚好在 indexMatch 上符合条件
+    int indexMatch = Arrays.binarySearch(validDistance.toArray(new Double[0]), targetLength);
+    if (indexMatch < 0) {
+      indexMatch = -(indexMatch + 1);
     }
+    int size = validLineSegments.size();
+    // 前一个 index
+    int preIndex = Math.max(indexMatch - 1, 0);
+    if (indexMatch >= size) {
+      // 说明总长度不够
+      // throw new Exception("不可以");
+      System.out.println("No");
+    }
+    double distanceGap = targetLength - validDistance.get(preIndex);
     Coordinate endCoordinate =
-        validLineSegments
-            .get(endIndex - 1)
-            .pointAlong(
-                (targetLength - validDistance.get(endIndex - 1))
-                    / validLineSegments.get(endIndex - 1).getLength());
+        distanceGap < FireClimbConstant.TOTAL_LENGTH_TOLERANCE
+            ? validLineSegments.get(preIndex).p1
+            : validLineSegments
+                .get(indexMatch)
+                .pointAlong(distanceGap / validLineSegments.get(indexMatch).getLength());
     // 根据起始点及polygon，计算出 buffer 后的 polygon
     Polygon resultPolygon =
         calculateGeometryWithCoordinates(polygon, startCoordinate, endCoordinate, isCCW);
     // 有效线段
-    List<LineSegment> resultLineSegments = validLineSegments.subList(0, endIndex - 1);
-    resultLineSegments.add(new LineSegment(validLineSegments.get(endIndex).p0, endCoordinate));
+    List<LineSegment> resultLineSegments = validLineSegments.subList(0, preIndex);
+    resultLineSegments.add(new LineSegment(validLineSegments.get(indexMatch).p0, endCoordinate));
     return new FireClimbPlatformInfo(resultPolygon, resultLineSegments);
   }
 
   /** 获取建筑面宽 */
-  private double getBuildingWidth() {
+  public double getBuildingWidth() {
     Polygon m = (Polygon) new MinimumDiameter(simplifiedPolygon).getMinimumRectangle();
     LineSegment l1 = new LineSegment(m.getCoordinates()[0], m.getCoordinates()[1]);
     LineSegment l2 = new LineSegment(m.getCoordinates()[1], m.getCoordinates()[2]);
@@ -254,25 +223,25 @@ public class FireClimb {
     // 去掉 hole
     afterPolygon =
         FireClimbConstant.GEOMETRY_FACTORY_TWO_DIGIT.createPolygon(simplify.getExteriorRing());
-    simplify = PolygonSimlifyUtil.patchSlopingSide(afterPolygon);
+    simplify = PolygonSimplifyUtil.patchSlopingSide(afterPolygon);
 
     simplifiedPolygon =
         Orientation.isCCW(simplify.getCoordinates()) ? simplify.reverse() : simplify;
 
     buffer5 =
         (Polygon) simplifiedPolygon.buffer(FireClimbConstant.FIRE_PLATFORM_MINIMUM_DISTANCE, -100);
-    buffer5 = PolygonSimlifyUtil.patchAcute(PolygonSimlifyUtil.removeShortEdge(buffer5));
+    buffer5 = PolygonSimplifyUtil.patchAcute(PolygonSimplifyUtil.removeShortEdge(buffer5));
     buffer5 = Orientation.isCCW(buffer5.getCoordinates()) ? buffer5.reverse() : buffer5;
   }
 
-  List<LineSegment> generateLines() {
-    return generateLines(buffer5);
+  public List<LineSegment> generateLines() {
+    return generateLines(buffer5, simplifiedPolygon);
   }
 
   /** 获取 polygon 上有效的登高面，按顺时针方向排列 */
-  List<LineSegment> generateLines(Polygon polygon) {
+  public static List<LineSegment> generateLines(Polygon buffer, Polygon origin) {
 
-    LinearRing polygonBoundary = polygon.getExteriorRing();
+    LinearRing polygonBoundary = buffer.getExteriorRing();
     LinearRing boundary =
         Orientation.isCCW(polygonBoundary.getCoordinates())
             ? polygonBoundary.reverse()
@@ -282,7 +251,7 @@ public class FireClimb {
     List<LineSegment> res = new ArrayList<>();
     // 对每一条边单独做 buffer，判断是否与 boundary 有交集
     List<LineSegment> allLineSegments =
-        XkLineSegmentUtil.generateLineSegmentListFromGeometry(simplifiedPolygon).stream()
+        XkLineSegmentUtil.generateLineSegmentListFromGeometry(origin).stream()
             .flatMap(
                 x -> {
                   Geometry intersection =
@@ -335,8 +304,8 @@ public class FireClimb {
     return lineSegments;
   }
   /** 部分线段（主要存在与锐角的情况）buffer 5-15 后的 geometry 在 buffer5 里面，不符合要求，要剔除部分 */
-  private List<LineSegment> deleteInvalidPartInLineSegment(
-      Geometry buffer5Boundary, List<LineSegment> res) {
+  public static List<LineSegment> deleteInvalidPartInLineSegment(
+      LinearRing buffer5Boundary, List<LineSegment> res) {
     for (int i = 0; i < res.size(); i++) {
       // 沿着逆时针90度方向，向外移动 10m
       LineSegment lineSegment = moveLineSegmentAlongVerticalDirection(res.get(i), 10);
@@ -354,16 +323,18 @@ public class FireClimb {
       // 验证一下 difference 与这个的差异
       // System.out.println(moveLine.difference(buffer5));
       Coordinate project = res.get(i).project(co);
-      if (buffer5.contains(moveLine.getStartPoint())) {
+      Polygon bufferPolygon =
+          FireClimbConstant.GEOMETRY_FACTORY_TWO_DIGIT.createPolygon(buffer5Boundary);
+      if (bufferPolygon.contains(moveLine.getStartPoint())) {
         res.set(i, new LineSegment(res.get(i).getCoordinate(1), project));
-      } else if (buffer5.contains(moveLine.getEndPoint())) {
+      } else if (bufferPolygon.contains(moveLine.getEndPoint())) {
         res.set(i, new LineSegment(project, res.get(i).getCoordinate(1)));
       }
     }
     return res.stream().filter(x -> x.getLength() > 0.02).collect(Collectors.toList());
   }
 
-  public double getDistanceAlongLinearRing(LinearRing linearRing, Coordinate coordinate) {
+  public static double getDistanceAlongLinearRing(LinearRing linearRing, Coordinate coordinate) {
     List<LineSegment> lineSegments =
         XkLineSegmentUtil.generateLineSegmentListFromGeometry(linearRing);
     List<Double> lens = new ArrayList<>();
@@ -380,7 +351,7 @@ public class FireClimb {
   }
 
   /** ring 上从 start 到 end 到距离，方向由 isCCW 决定 */
-  public double getDistanceAlongLinearRing(
+  public static double getDistanceAlongLinearRing(
       LinearRing ring, Coordinate start, Coordinate end, boolean isCCW) {
     Coordinate[] ringCoordinates = ring.getCoordinates();
     // 方向不一致，就翻转
@@ -423,7 +394,7 @@ public class FireClimb {
   }
 
   /** 按逆时针 90 度方向，移动一定距离 */
-  public LineSegment moveLineSegmentAlongVerticalDirection(
+  public static LineSegment moveLineSegmentAlongVerticalDirection(
       LineSegment lineSegment, double distance) {
     Vector2D vector2D = new Vector2D(lineSegment.getCoordinate(0), lineSegment.getCoordinate(1));
     Vector2D rotate = vector2D.rotate(Math.PI / 2);
@@ -452,11 +423,14 @@ public class FireClimb {
    * <li>计算差值，在首尾两条线段上分别截取一部分，使有效长度刚好满足
    * <li>计算其登高面
    *
+   * @param origin
+   * @param buffer
    * @param ls buffer5 上的有效线段
    * @param targetLength 目标的有效线段长度之和
    * @return 返回所有找到的可行的消防登高面
    */
-  public List<FireClimbPlatformInfo> generatePlans(List<LineSegment> ls, double targetLength) {
+  public static List<FireClimbPlatformInfo> getAllPlatforms(
+      Polygon origin, Polygon buffer, List<LineSegment> ls, double targetLength) {
     // 结果
     List<FireClimbPlatformInfo> result = new ArrayList<>();
     // 保存滑动窗口的结果，key: lastIndex, value: firstIndex
@@ -477,7 +451,7 @@ public class FireClimb {
                   result.add(
                       new FireClimbPlatformInfo(
                           calculateGeometryWithCoordinates(
-                              buffer5,
+                              buffer,
                               x.get(0).getCoordinate(0),
                               x.get(x.size() - 1).getCoordinate(1),
                               false),
@@ -486,14 +460,14 @@ public class FireClimb {
     return result.stream()
         .filter(
             x ->
-                x.getPlatform().distance(originPolygon)
+                x.getPlatform().distance(origin)
                     > FireClimbConstant.FIRE_PLATFORM_MINIMUM_DISTANCE
                         - FireClimbConstant.TOTAL_LENGTH_TOLERANCE)
         .collect(Collectors.toList());
   }
 
   /** lsInUse 实际长度大于 targetLength，在此修剪首尾 lineSegment 使其刚好满足要求 */
-  private List<List<LineSegment>> generateValidLineStringInBuffer5(
+  private static List<List<LineSegment>> generateValidLineStringInBuffer5(
       List<LineSegment> lsInUse, double targetLength) {
     double currentSum = lsInUse.stream().mapToDouble(LineSegment::getLength).sum();
 
@@ -534,7 +508,7 @@ public class FireClimb {
    * @param targetLength 目标长度
    * @return key: index 区间右界 value: index 区间左界
    */
-  public Map<Integer, Integer> generateValidLineSegmentsInBuffer5(
+  public static Map<Integer, Integer> generateValidLineSegmentsInBuffer5(
       List<LineSegment> ls, double targetLength) {
     Map<Integer, Integer> map = new HashMap<>();
     List<Double> lens = ls.stream().map(LineSegment::getLength).collect(Collectors.toList());
@@ -563,7 +537,7 @@ public class FireClimb {
   }
 
   /** 根据 polygon 上的起始两点，按顺时针顺序从 start 到 end，并生成该 lineString buffer 10 的 polygon */
-  public Polygon calculateGeometryWithCoordinates(
+  public static Polygon calculateGeometryWithCoordinates(
       Polygon polygon, Coordinate start, Coordinate end, boolean isCCW) {
     LineString fragmentFromLinearRing =
         getFragmentFromLinearRing(polygon.getExteriorRing(), start, end, isCCW);
@@ -587,7 +561,7 @@ public class FireClimb {
   }
 
   /** 在给定参数下，对 lineString 做单侧 buffer */
-  public Polygon lineStringSingleSizeBuffer(LineString lineString, double distance) {
+  public static Polygon lineStringSingleSizeBuffer(LineString lineString, double distance) {
     BufferParameters bufferParameters = new BufferParameters();
     bufferParameters.setEndCapStyle(BufferParameters.CAP_FLAT);
     bufferParameters.setJoinStyle(BufferParameters.JOIN_MITRE);
@@ -607,16 +581,8 @@ public class FireClimb {
   }
 
   /** 找到沿 lineSegment 方向，距离为 distance 的点 */
-  public Coordinate findPointAlongLineSegment(LineSegment lineSegment, double distance) {
+  public static Coordinate findPointAlongLineSegment(LineSegment lineSegment, double distance) {
     return lineSegment.pointAlong(distance / lineSegment.getLength());
-  }
-
-  /** 选择其中一个方案 */
-  public FireClimbPlatformInfo handle() {
-    return getFireClimbFaces().stream()
-        .min(Comparator.comparingDouble(x -> x.getPlatform().getArea()))
-        // .min(Comparator.comparingDouble(x -> x.getPlatform().getCoordinates().length))
-        .orElse(null);
   }
 
   /**
@@ -635,7 +601,7 @@ public class FireClimb {
    * @param isCCW 是否逆时针
    * @return 首尾为 firstClosest secondClosest，方向与 ring 的方向一致
    */
-  public LineString getFragmentFromLinearRing(
+  public static LineString getFragmentFromLinearRing(
       LinearRing ring, Coordinate start, Coordinate end, boolean isCCW) {
     Coordinate[] coordinates = ring.getCoordinates();
     // 如果方向不一致，则需要翻转方向
@@ -682,7 +648,7 @@ public class FireClimb {
         list.toArray(new Coordinate[0]));
   }
 
-  public Coordinate findClosestPoint(Geometry geometry, Coordinate coordinate) {
+  public static Coordinate findClosestPoint(Geometry geometry, Coordinate coordinate) {
     List<LineSegment> lineSegments =
         XkLineSegmentUtil.generateLineSegmentListFromGeometry(geometry);
     LineSegment lineSegment =

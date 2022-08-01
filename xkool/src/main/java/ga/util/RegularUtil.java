@@ -2,7 +2,7 @@ package ga.util;
 
 import com.xkool.algo.util.plotter.XkPlotter;
 import ga.constant.JtsConstant;
-import org.apache.commons.lang.math.RandomUtils;
+import org.apache.commons.lang3.RandomUtils;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.Polygon;
@@ -132,8 +132,8 @@ public class RegularUtil {
                 list.add(
                     PointUtil.movePoint(
                         point,
-                        ((double) RandomUtils.nextInt(1000)) / 100.0,
-                        ((double) RandomUtils.nextInt(800)) / 100.0)));
+                        ((double) RandomUtils.nextInt(0, 1000)) / 100.0,
+                        ((double) RandomUtils.nextInt(0, 800)) / 100.0)));
     return list;
   }
 }

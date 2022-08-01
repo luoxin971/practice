@@ -3,7 +3,6 @@ package jts;
 import com.xkool.algo.util.plotter.XkPlotter;
 import ga.constant.JtsConstant;
 import ga.util.PointUtil;
-import org.apache.commons.lang.math.RandomUtils;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryCollection;
@@ -12,6 +11,7 @@ import org.locationtech.jts.geom.Point;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 import java.util.stream.IntStream;
 
 /**
@@ -30,8 +30,8 @@ public class ConvexHullInPoints {
                 list.add(
                     PointUtil.movePoint(
                         point,
-                        ((double) RandomUtils.nextInt(3000)) / 100.0,
-                        ((double) RandomUtils.nextInt(3000)) / 100.0)));
+                        ((double) new Random().nextInt(3000)) / 100.0,
+                        ((double) new Random().nextInt(3000)) / 100.0)));
     GeometryCollection geometryCollection =
         JtsConstant.GEOMETRY_FACTORY_FLOATING.createGeometryCollection(list.toArray(new Point[0]));
     Geometry hull = geometryCollection.convexHull();
