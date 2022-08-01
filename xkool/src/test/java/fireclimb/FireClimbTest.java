@@ -79,19 +79,23 @@ public class FireClimbTest {
                   allPlatform.stream()
                       .allMatch(
                           x -> {
+                            FireClimbPlatformInfo f1 =
+                                fireClimb.getFirePlatformWithStartPoint(
+                                    fireClimb.getBuffer5(),
+                                    fireClimb.getBuildingWidth(),
+                                    x.getLineSegments().get(0).p0,
+                                    false);
                             boolean b1 =
-                                x.getPlatform()
-                                        .symDifference(
-                                            fireClimb
-                                                .getFirePlatformWithStartPoint(
-                                                    fireClimb.getBuffer5(),
-                                                    fireClimb.getBuildingWidth(),
-                                                    x.getLineSegments().get(0).p0,
-                                                    false)
-                                                .getPlatform())
-                                        .getArea()
-                                    < 1;
-                            return b1;
+                                x.getPlatform().symDifference(f1.getPlatform()).getArea() < 1;
+                            FireClimbPlatformInfo f2 =
+                                fireClimb.getFirePlatformWithStartPoint(
+                                    fireClimb.getBuffer5(),
+                                    fireClimb.getBuildingWidth(),
+                                    x.getLineSegments().get(x.getLineSegments().size() - 1).p1,
+                                    true);
+                            boolean b2 =
+                                x.getPlatform().symDifference(f2.getPlatform()).getArea() < 1;
+                            return b1 && b2;
                           });
               System.out.println(b);
             });
